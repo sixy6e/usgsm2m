@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -55,11 +56,21 @@ func WithLogger(l *slog.Logger) Option {
 // NewClient initializes the USGS M2M Client.
 func NewClient(username, token string, maxWorkers int, outputDir string, opts ...Option) (*Client, error) {
 	c := &Client{
-		httpClient: &http.Client{Timeout: 100 * time.Second},
-		baseURL:    "https://m2m.cr.usgs.gov/api/api/json/stable/",
-		username:   username,
-		token:      token,
-		logger:     slog.Default(),
+		httpClient: &http.Client{
+			Timeout: 0,
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second, // drop connection if handshake fails
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout:   15 * time.Second,
+				ResponseHeaderTimeout: 45 * time.Second, // drop connection if USGS chokes on headers
+			},
+		},
+		baseURL:  "https://m2m.cr.usgs.gov/api/api/json/stable/",
+		username: username,
+		token:    token,
+		logger:   slog.Default(),
 	}
 
 	for _, opt := range opts {
@@ -244,6 +255,7 @@ func (c *Client) SmartBatchRequest(ctx context.Context, dataset string, entityId
 		return err
 	}
 
+	// TODO check and confirm whether "bundle" can work for other datasets eg modis viirs
 	// filter for "Bundles" (Level-1 GeoTIFF Product Bundle)
 	// could build other filters
 	var downloadIds []string
@@ -266,7 +278,7 @@ func (c *Client) SceneSearch(ctx context.Context, req SceneSearchRequest) (*Scen
 	var resp SceneSearchResponse
 
 	// Default MaxResults to 100 if the user didn't specify,
-	// matching your struct's comment expectation.
+	// matching the struct's comment expectation.
 	if req.MaxResults == 0 {
 		req.MaxResults = 100
 	}
