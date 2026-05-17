@@ -50,19 +50,25 @@ func NewDownloadManager(client *Client, workers int, outputDir string) (*Downloa
 }
 
 func (d *DownloadManager) Enqueue(ctx context.Context, job DownloadJob) {
+	// CRITICAL FIX: create a locally scoped copy of the job
+	// (one of Go's gotcha's)
+	// this forces Go to allocate a unique block of memory for this specific function block,
+	// preventing downstream pool workers from reading mutated loop data
+	localJob := job
+
 	d.pool.Submit(func() {
 		// pre-run check: eg "Did the user cancel while we were in the queue?"
 		select {
 		case <-ctx.Done():
-			d.logger.Debug("Task cancelled before starting", "file", job.EntityId)
+			d.logger.Debug("Task cancelled before starting", "file", localJob.EntityId)
 			return
 		default:
 			// proceed normally
 		}
 
 		// pass the context DOWN into the retry/download logic
-		if err := d.DownloadWithRetry(ctx, job); err != nil {
-			d.logger.Error("Download failed", "file", job.EntityId, "error", err)
+		if err := d.DownloadWithRetry(ctx, localJob); err != nil {
+			d.logger.Error("Download failed", "file", localJob.EntityId, "error", err)
 		}
 	})
 }
@@ -73,6 +79,11 @@ func (m *DownloadManager) DownloadWithRetry(ctx context.Context, job DownloadJob
 
 	for i := 0; i < maxRetries; i++ {
 		if i > 0 {
+			// FIX: Check if the user killed the app BEFORE logging or calculating wait times
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
 			wait := time.Duration(math.Pow(2, float64(i))) * time.Second
 			m.client.logger.Warn("Retrying download",
 				"entityId", job.EntityId,
@@ -80,7 +91,7 @@ func (m *DownloadManager) DownloadWithRetry(ctx context.Context, job DownloadJob
 				"wait", wait,
 			)
 
-			// modern Go: Sleep but stay alert for Context cancellation
+			// sleep but stay alert for Context cancellation
 			select {
 			case <-time.After(wait):
 				// sleep finished, proceed to retry
@@ -131,7 +142,7 @@ func (d *DownloadManager) downloadFile(ctx context.Context, job DownloadJob) (er
 		return fmt.Errorf("server returned status %d for %s", resp.StatusCode, job.EntityId)
 	}
 
-	// create a way to stop the killer goroutine if the download finishes naturally
+	// create a way to stop the goroutine if the download finishes naturally
 	downloadDone := make(chan struct{})
 	defer close(downloadDone)
 
@@ -190,8 +201,12 @@ func (d *DownloadManager) downloadFile(ctx context.Context, job DownloadJob) (er
 
 	defer func() {
 		out.Close()
-		if err != nil {
-			d.client.logger.Warn("Cleaning up failed download", "path", tmpPath, "error", err)
+		if err != nil || ctx.Err() != nil {
+			d.client.logger.Warn("Cleaning up failed download",
+				"path", tmpPath,
+				"error", err,
+				"ctx_err", ctx.Err(),
+			)
 			os.Remove(tmpPath)
 		}
 	}()
