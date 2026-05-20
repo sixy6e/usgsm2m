@@ -388,3 +388,17 @@ type SceneListAddResponse struct {
 	// The USGS returns the number of scenes successfully added in the "data" field
 	Count int `json:"data"`
 }
+
+type DatasetMetadataRequest struct {
+	DatasetName string `json:"datasetName"`
+}
+
+type DatasetMetadataResponse struct {
+	BaseResponse
+	Data map[string][]M2MFieldID `json:"data"` // potentially each dataset could have different fields
+}
+
+type M2MFieldID struct {
+	ID        string `json:"id"`
+	FieldName string `json:"field_name"`
+}
