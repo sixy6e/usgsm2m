@@ -396,3 +396,19 @@ func (c *Client) Cleanup(ctx context.Context, sceneListName string) {
 		c.logger.Info("USGS session closed")
 	}
 }
+
+// FetchDatasetMetadata uses the "dataset-metadata" endpoint to retrieve all metadata fields for a given dataset
+func (c *Client) FetchDatasetMetadata(ctx context.Context, datasetName string) (map[string][]M2MFieldID, error) {
+	req := DatasetMetadataRequest{
+		DatasetName: datasetName,
+	}
+
+	var resp DatasetMetadataResponse
+
+	err := c.doRequest(ctx, "dataset-metadata", req, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Data, nil
+}
