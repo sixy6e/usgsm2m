@@ -412,3 +412,26 @@ func (c *Client) FetchDatasetMetadata(ctx context.Context, datasetName string) (
 
 	return resp.Data, nil
 }
+
+// FetchDatasetFilters retrieves searchable parameters and valid option mappings for scene queries
+func (c *Client) FetchDatasetFilters(ctx context.Context, datasetName string) ([]DatasetFilterField, error) {
+	// payload for the endpoint
+	reqPayload := map[string]string{
+		"datasetName": datasetName,
+	}
+
+	var respEnvelope DatasetFiltersResponse
+
+	// fire the network call
+	err := c.doRequest(ctx, "dataset-filters", reqPayload, &respEnvelope)
+	if err != nil {
+		return nil, fmt.Errorf("network execution failed for dataset-filters: %w", err)
+	}
+
+	// handle explicit error responses sent down by the USGS API
+	if respEnvelope.ErrorMessage != "" || respEnvelope.ErrorCode != "" {
+		return nil, fmt.Errorf("USGS API error (%s): %s", respEnvelope.ErrorCode, respEnvelope.ErrorMessage)
+	}
+
+	return respEnvelope.Data, nil
+}
