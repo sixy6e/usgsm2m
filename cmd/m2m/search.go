@@ -15,6 +15,8 @@ import (
 var (
 	metaFlags []string
 	limitFlag int64
+	startFlag string
+	endFlag   string
 )
 
 var searchCmd = &cobra.Command{
@@ -64,6 +66,28 @@ var searchCmd = &cobra.Command{
 		apiFilter, err := BuildMetadataFilter(ctx, resolver, cfg.Dataset, parsedInputs)
 		if err != nil {
 			return fmt.Errorf("failed to construct metadata filter: %w", err)
+		}
+
+		// initialise the base SceneFilter with the resolved metadata pointer
+		sceneFilter := &usgsm2m.SceneFilter{
+			Metadata: apiFilter,
+		}
+
+		// check for partial date inputs
+		// USGS M2M might allow one empty side and insert either the earliest
+		// for missing start or now if missing the end
+		// but it's probably safer (and easier on the server) to not accidentally
+		// request something unexpectedly
+		if (startFlag != "" && endFlag == "") || (startFlag == "" && endFlag != "") {
+			return fmt.Errorf("both --start and --end dates must be specified together to set a temporal window")
+		}
+
+		// if we pass this check and at least one is set, it means both are set
+		if startFlag != "" {
+			sceneFilter.Acquisition = &usgsm2m.AcquisitionFilter{
+				Start: startFlag,
+				End:   endFlag,
+			}
 		}
 
 		// assemble the search criteria payload
@@ -162,4 +186,8 @@ func init() {
 	searchCmd.Flags().StringSliceVarP(&metaFlags, "meta", "m", []string{}, "Metadata filters to apply (e.g. -m 'WRS Path=90' -m 'WRS Row=32')")
 	searchCmd.Flags().StringP("dataset", "d", "landsat_ot_c2_l1", "The USGS dataset name")
 	searchCmd.Flags().Int64VarP(&limitFlag, "limit", "l", 100, "Maximum number of scenes to return")
+
+	// acquisition date window flags
+	searchCmd.Flags().StringVar(&startFlag, "start", "", "Start date for scene acquisition (YYYY-MM-DD)")
+	searchCmd.Flags().StringVar(&endFlag, "end", "", "End date for scene acquisition (YYYY-MM-DD)")
 }
