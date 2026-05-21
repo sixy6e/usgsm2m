@@ -1,8 +1,12 @@
 package usgsm2m
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/geojson"
 	"github.com/samber/lo"
 )
 
@@ -116,6 +120,52 @@ type SpatialBoundsMbr struct {
 	West float64 `json:"west"`
 }
 
+// SpatialBounds handles the polymorphic USGS abstract data model.
+// It gracefully captures either a standard GeoJSON Polygon or an MBR.
+// It uses paulmach/orb under the hood for type-safe GeoJSON processing.
+type SpatialBounds struct {
+	// Standard GeoJSON fields
+	Type string `json:"type,omitempty"`
+	// Coordinates [][]Point `json:"coordinates,omitempty"`
+	// Coordinates interface{} `json:"coordinates,omitempty"`
+
+	// High-fidelity GeoJSON data parsed cleanly via orb
+	Geometry orb.Geometry
+
+	// Minimum Bounding Rectangle (MBR) fields
+	North string `json:"north,omitempty"`
+	East  string `json:"east,omitempty"`
+	South string `json:"south,omitempty"`
+	West  string `json:"west,omitempty"`
+}
+
+func (sb *SpatialBounds) UnmarshalJSON(data []byte) error {
+	// Unmarshal into a map first to inspect whether it's an MBR or GeoJSON
+	var probe map[string]any
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+
+	// check if this is an MBR object (contains "north")
+	if _, isMBR := probe["north"]; isMBR {
+		type Alias SpatialBounds
+		aux := (*Alias)(sb)
+		return json.Unmarshal(data, aux)
+	}
+
+	// otherwise, treat it as a robust GeoJSON geometry block using orb
+	geom, err := geojson.UnmarshalGeometry(data)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal spatial geometry via orb: %w", err)
+	}
+
+	if geom != nil {
+		sb.Geometry = geom.Geometry()
+	}
+
+	return nil
+}
+
 type UserContext struct {
 	// Internal user Identifier
 	ContactId string `json:"contactId"`
@@ -144,8 +194,8 @@ type Scene struct {
 	} `json:"options"`
 
 	// Geometry
-	SpatialBounds   GeoJson `json:"spatialBounds"`
-	SpatialCoverage GeoJson `json:"spatialCoverage"`
+	SpatialBounds   SpatialBounds `json:"spatialBounds"`
+	SpatialCoverage SpatialBounds `json:"spatialCoverage"`
 
 	// Temporal info
 	TemporalCoverage struct {
@@ -165,27 +215,27 @@ type Browse struct {
 }
 
 type Dataset struct {
-	AbstractText          string           `json:"abstractText"`
-	AcquisitionEnd        string           `json:"acquisitionEnd"`
-	AcquisitionStart      string           `json:"acquisitionStart"`
-	AllowInKmz            bool             `json:"allowInKmz"`
-	Catalogs              []string         `json:"catalogs"`
-	CollectionLongName    string           `json:"collectionLongName"`
-	CollectionName        string           `json:"collectionName"`
-	DataOwner             string           `json:"dataOwner"`
-	DatasetAlias          string           `json:"datasetAlias"`
-	DatasetCategoryName   string           `json:"datasetCategoryName"`
-	DatasetId             string           `json:"datasetId"`
-	DateUpdated           string           `json:"dateUpdated"`
-	DoiNumber             string           `json:"doiNumber"`
-	IngestFrequency       string           `json:"ingestFrequency"`
-	Keywords              string           `json:"keywords"`
-	LegacyId              int64            `json:"legacyId"`
-	SceneCount            int64            `json:"sceneCount"`
-	SpatialBounds         SpatialBoundsMbr `json:"spatialBounds"`
-	SupportCloudCover     bool             `json:"supportCloudCover"`
-	SupportDeletionSearch bool             `json:"supportDeletionSearch"`
-	TemporalCoverage      string           `json:"temporalCoverage"`
+	AbstractText          string        `json:"abstractText"`
+	AcquisitionEnd        string        `json:"acquisitionEnd"`
+	AcquisitionStart      string        `json:"acquisitionStart"`
+	AllowInKmz            bool          `json:"allowInKmz"`
+	Catalogs              []string      `json:"catalogs"`
+	CollectionLongName    string        `json:"collectionLongName"`
+	CollectionName        string        `json:"collectionName"`
+	DataOwner             string        `json:"dataOwner"`
+	DatasetAlias          string        `json:"datasetAlias"`
+	DatasetCategoryName   string        `json:"datasetCategoryName"`
+	DatasetId             string        `json:"datasetId"`
+	DateUpdated           string        `json:"dateUpdated"`
+	DoiNumber             string        `json:"doiNumber"`
+	IngestFrequency       string        `json:"ingestFrequency"`
+	Keywords              string        `json:"keywords"`
+	LegacyId              int64         `json:"legacyId"`
+	SceneCount            int64         `json:"sceneCount"`
+	SpatialBounds         SpatialBounds `json:"spatialBounds"`
+	SupportCloudCover     bool          `json:"supportCloudCover"`
+	SupportDeletionSearch bool          `json:"supportDeletionSearch"`
+	TemporalCoverage      string        `json:"temporalCoverage"`
 }
 
 // This allows doRequest to handle error checking generically.
