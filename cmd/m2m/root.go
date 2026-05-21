@@ -16,6 +16,7 @@ import (
 var (
 	cfg    usgsm2m.Config
 	logger *slog.Logger
+	asJSON bool
 )
 
 var rootCmd = &cobra.Command{
@@ -25,11 +26,13 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	// initialize a text logger that outputs to standard error
-	logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().String("username", "", "USGS M2M Username")
 	rootCmd.PersistentFlags().String("token", "", "USGS M2M API Token")
+
+	rootCmd.PersistentFlags().BoolVarP(&asJSON, "json", "j", false, "Output command results in JSON format")
 
 	viper.BindPFlag("username", rootCmd.PersistentFlags().Lookup("username"))
 	viper.BindPFlag("token", rootCmd.PersistentFlags().Lookup("token"))
