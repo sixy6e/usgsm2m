@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+
+	"github.com/sixy6e/usgsm2m/pkg/usgsm2m"
 )
 
 // MetadataInput represents a raw user filter parsed from CLI string arguments
@@ -52,4 +55,43 @@ func parseMetaFlag(raw string) (MetadataInput, error) {
 	}
 
 	return MetadataInput{}, fmt.Errorf("no valid operator found in filter '%s' (supported: =, like)", raw)
+}
+
+// parseCloudFilter handles the cloud filter parsed from the CLI
+func parseCloudFilter(input string) (*usgsm2m.CloudCoverFilter, error) {
+	if input == "" {
+		return nil, nil
+	}
+
+	var min, max int64
+	var err error
+
+	if strings.Contains(input, ":") {
+		parts := strings.SplitN(input, ":", 2)
+		min, err = strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cloud min value: %w", err)
+		}
+		max, err = strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cloud max value: %w", err)
+		}
+	} else {
+		// treat a single number as a maximum ceiling (0 to max)
+		min = 0
+		max, err = strconv.ParseInt(strings.TrimSpace(input), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cloud value: %w", err)
+		}
+	}
+
+	if min < 0 || max > 100 || min > max {
+		return nil, fmt.Errorf("cloud filter must be between 0 and 100, and min cannot exceed max")
+	}
+
+	return &usgsm2m.CloudCoverFilter{
+		Min:            min,
+		Max:            max,
+		IncludeUnknown: true, // typically true so one doesn't miss unrated scenes, or map to a flag
+	}, nil
 }
