@@ -17,6 +17,7 @@ var (
 	limitFlag int64
 	startFlag string
 	endFlag   string
+	cloudFlag string
 )
 
 var searchCmd = &cobra.Command{
@@ -90,12 +91,18 @@ var searchCmd = &cobra.Command{
 			}
 		}
 
+		cloudFilter, err := parseCloudFilter(cloudFlag)
+		if err != nil {
+			return fmt.Errorf("cloud filter error: %w", err)
+		}
+
 		// assemble the search criteria payload
 		req := usgsm2m.SceneSearchRequest{
 			DatasetName: cfg.Dataset,
 			MaxResults:  limitFlag,
 			SceneFilter: &usgsm2m.SceneFilter{
-				Metadata: apiFilter,
+				CloudCover: cloudFilter,
+				Metadata:   apiFilter,
 			},
 		}
 
@@ -204,4 +211,7 @@ func init() {
 	// acquisition date window flags
 	searchCmd.Flags().StringVar(&startFlag, "start", "", "Start date for scene acquisition (YYYY-MM-DD)")
 	searchCmd.Flags().StringVar(&endFlag, "end", "", "End date for scene acquisition (YYYY-MM-DD)")
+
+	// cloud filtering
+	searchCmd.Flags().StringVar(&cloudFlag, "cloud", "", "Filter by cloud cover percentage (e.g., '15' for 0-15%, or '10:20')")
 }
