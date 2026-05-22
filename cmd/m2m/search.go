@@ -163,12 +163,26 @@ func BuildMetadataFilter(ctx context.Context, resolver *FieldResolver, dataset s
 			return nil, err
 		}
 
-		// maps input parameters directly to "VALUE" type blocks
-		filterItem := usgsm2m.NewMetadataFilter(
-			usgsm2m.WithValue(fieldID, input.Value, input.Operand),
-		)
+		var filterItem usgsm2m.MetadataFilter
+
+		// handle range requests vs. standard values
+		if input.Operand == "between" {
+			filterItem = usgsm2m.NewMetadataFilter(
+				usgsm2m.WithBetween(fieldID, input.FirstValue, input.SecondValue),
+			)
+		} else {
+			// maps input parameters directly to "VALUE" type blocks (e.g., EQUAL, LIKE)
+			filterItem = usgsm2m.NewMetadataFilter(
+				usgsm2m.WithValue(fieldID, input.Value, input.Operand),
+			)
+		}
 
 		childFilters = append(childFilters, filterItem)
+	}
+
+	// if there's only one filter, there's no need to nest it inside an AND block
+	if len(childFilters) == 1 {
+		return &childFilters[0], nil
 	}
 
 	// group filter items inside the "AND" block container type
