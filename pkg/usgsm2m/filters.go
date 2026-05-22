@@ -27,8 +27,8 @@ type MetadataFilter struct {
 	// For BETWEEN
 	FirstValue interface{} `json:"firstValue,omitempty"`
 	// For BETWEEN
-	LastValue interface{} `json:"lastValue,omitempty"`
-	Operand   string      `json:"operand,omitempty"`
+	SecondValue interface{} `json:"secondValue,omitempty"`
+	Operand     string      `json:"operand,omitempty"`
 	// For AND/OR
 	Filters []MetadataFilter `json:"childFilters,omitempty"`
 }
@@ -99,6 +99,16 @@ func WithAnd(filters ...MetadataFilter) MetadataOption {
 	return func(f *MetadataFilter) {
 		f.FilterType = "and"
 		f.Filters = filters
+	}
+}
+
+// WithBetween sets up a range constraint on a specific metadata field ID
+func WithBetween(id string, first interface{}, second interface{}) MetadataOption {
+	return func(f *MetadataFilter) {
+		f.FilterType = "between"
+		f.FilterId = id
+		f.FirstValue = first
+		f.SecondValue = second
 	}
 }
 
