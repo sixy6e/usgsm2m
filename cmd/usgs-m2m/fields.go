@@ -26,7 +26,7 @@ var fieldsCmd = &cobra.Command{
 		datasetName := args[0]
 
 		// sanity check for required credentials (reusing the shared 'cfg' layout)
-		if cfg.Username == "" || cfg.Token == "" {
+		if cfg.Auth.Username == "" || cfg.Auth.Token == "" {
 			return errors.New("missing authentication credentials; please set username and token in your .m2m.toml or use --username/--token flags")
 		}
 
@@ -35,15 +35,15 @@ var fieldsCmd = &cobra.Command{
 		defer stop()
 
 		if !asJSON {
-			logger.Info("Initializing USGS M2M Client for metadata lookup", "user", cfg.Username)
+			logger.Info("Initializing USGS M2M Client for metadata lookup", "user", cfg.Auth.Username)
 		}
 
 		// instantiate the client
 		client, err := usgsm2m.NewClient(
-			cfg.Username,
-			cfg.Token,
+			cfg.Auth.Username,
+			cfg.Auth.Token,
 			1, // concurrency doesn't matter for metadata lookups
-			cfg.OutputDir,
+			cfg.Defaults.OutputDir,
 			usgsm2m.WithLogger(logger),
 		)
 		if err != nil {

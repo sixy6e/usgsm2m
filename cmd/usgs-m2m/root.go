@@ -34,8 +34,8 @@ func init() {
 
 	rootCmd.PersistentFlags().BoolVarP(&asJSON, "json", "j", false, "Output command results in JSON format")
 
-	viper.BindPFlag("username", rootCmd.PersistentFlags().Lookup("username"))
-	viper.BindPFlag("token", rootCmd.PersistentFlags().Lookup("token"))
+	viper.BindPFlag("auth.username", rootCmd.PersistentFlags().Lookup("username"))
+	viper.BindPFlag("auth.token", rootCmd.PersistentFlags().Lookup("token"))
 }
 
 func initConfig() {
@@ -46,9 +46,9 @@ func initConfig() {
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("USGS_M2M")
 
-	viper.SetDefault("concurrency", 4)
-	viper.SetDefault("dataset", "landsat_ot_c2_l1")
-	viper.SetDefault("output_dir", "./downloads")
+	viper.SetDefault("defaults.concurrency", 4)
+	viper.SetDefault("defaults.dataset", "landsat_ot_c2_l1")
+	viper.SetDefault("defaults.output_dir", "./downloads")
 
 	if err := viper.ReadInConfig(); err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError

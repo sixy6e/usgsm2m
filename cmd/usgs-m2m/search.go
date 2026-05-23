@@ -28,19 +28,19 @@ var searchCmd = &cobra.Command{
 		ctx := cmd.Context()
 
 		// authenticate and initialise the client
-		if cfg.Username == "" || cfg.Token == "" {
+		if cfg.Auth.Username == "" || cfg.Auth.Token == "" {
 			return fmt.Errorf("missing authentication credentials; please set username and token")
 		}
 
 		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		logger.Info("Initializing client for scene search", "user", cfg.Username)
+		logger.Info("Initializing client for scene search", "user", cfg.Auth.Username)
 		client, err := usgsm2m.NewClient(
-			cfg.Username,
-			cfg.Token,
+			cfg.Auth.Username,
+			cfg.Auth.Token,
 			1,
-			cfg.OutputDir,
+			cfg.Defaults.OutputDir,
 			usgsm2m.WithLogger(logger),
 		)
 		if err != nil {
@@ -64,7 +64,7 @@ var searchCmd = &cobra.Command{
 
 		// create the single resolver instance to benefit from the internal cache
 		resolver := NewFieldResolver(client)
-		apiFilter, err := BuildMetadataFilter(ctx, resolver, cfg.Dataset, parsedInputs)
+		apiFilter, err := BuildMetadataFilter(ctx, resolver, cfg.Defaults.Dataset, parsedInputs)
 		if err != nil {
 			return fmt.Errorf("failed to construct metadata filter: %w", err)
 		}
@@ -100,12 +100,12 @@ var searchCmd = &cobra.Command{
 
 		// assemble the search criteria payload
 		req := usgsm2m.SceneSearchRequest{
-			DatasetName: cfg.Dataset,
+			DatasetName: cfg.Defaults.Dataset,
 			MaxResults:  limitFlag,
 			SceneFilter: sceneFilter,
 		}
 
-		logger.Info("Executing scene search with metadata constraints...", "dataset", cfg.Dataset, "filters", len(parsedInputs))
+		logger.Info("Executing scene search with metadata constraints...", "dataset", cfg.Defaults.Dataset, "filters", len(parsedInputs))
 
 		results, err := client.SceneSearch(ctx, req)
 		if err != nil {

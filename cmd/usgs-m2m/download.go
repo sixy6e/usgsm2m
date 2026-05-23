@@ -52,7 +52,7 @@ var downloadCmd = &cobra.Command{
 		}
 
 		// sanity check for required authentication fields
-		if cfg.Username == "" || cfg.Token == "" {
+		if cfg.Auth.Username == "" || cfg.Auth.Token == "" {
 			return errors.New("missing authentication credentials; please set username and token in your .m2m.toml or use --username/--token flags")
 		}
 
@@ -61,14 +61,14 @@ var downloadCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop() // clean up the signal listener registration on exit
 
-		logger.Info("Initializing USGS M2M Client Pool", "user", cfg.Username)
+		logger.Info("Initializing USGS M2M Client Pool", "user", cfg.Auth.Username)
 
 		// instantiate the Client using user's signature
 		client, err := usgsm2m.NewClient(
-			cfg.Username,
-			cfg.Token,
-			cfg.Concurrency,
-			cfg.OutputDir,
+			cfg.Auth.Username,
+			cfg.Auth.Token,
+			cfg.Defaults.Concurrency,
+			cfg.Defaults.OutputDir,
 			usgsm2m.WithLogger(logger),
 		)
 		if err != nil {
@@ -87,14 +87,14 @@ var downloadCmd = &cobra.Command{
 		// (avoid collisions with previous requests)
 		batchLabel := usgsm2m.GenerateBatchId()
 
-		logger.Info("Validating scene list with USGS", "dataset", cfg.Dataset, "count", len(args))
-		confirmed := client.Request.AddToSceneListSafely(ctx, cfg.Dataset, batchLabel, args)
+		logger.Info("Validating scene list with USGS", "dataset", cfg.Defaults.Dataset, "count", len(args))
+		confirmed := client.Request.AddToSceneListSafely(ctx, cfg.Defaults.Dataset, batchLabel, args)
 		if len(confirmed) == 0 {
 			return errors.New("no scene IDs were successfully validated by USGS")
 		}
 
 		// fetch product download options
-		options, err := client.Request.GetDownloadOptions(ctx, cfg.Dataset, confirmed)
+		options, err := client.Request.GetDownloadOptions(ctx, cfg.Defaults.Dataset, confirmed)
 		if err != nil {
 			return fmt.Errorf("failed to fetch product options: %w", err)
 		}
