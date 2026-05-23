@@ -25,8 +25,10 @@ field discovery, searching and downloads.
 
 The CLI reads credentials from your shell environment variables to ensure secure API transactions:
 
-export USGS\_USERNAME="your\_username"
-export USGS\_AUTH\_TOKEN="your\_token\_or\_api\_key"
+```bash
+export USGS_M2M_AUTH_USERNAME="your_username"
+export USGS_M2M_AUTH_TOKEN="your_token_or_api_key"
+```
 
 Or via TOML eg ".usgs-m2m.toml"
 
