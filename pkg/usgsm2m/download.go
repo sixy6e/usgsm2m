@@ -239,15 +239,16 @@ type DownloadOptionsResponse struct {
 	Data []DownloadOption `json:"data"`
 }
 
-func (s *RequestService) RequestDownload(ctx context.Context, codes []string, label string) (*DownloadResponse, error) {
-	req := DownloadRequest{
-		DownloadCodes: codes,
-		Label:         label,
+// DownloadRequest submits a list of product items to the M2M download pipeline using a tracking label.
+// calls the 'download-request' M2M endpoint.
+func (s *RequestService) DownloadRequest(ctx context.Context, items []DownloadRequestItem, label string) (*DownloadRequestResponse, error) {
+	payload := DownloadRequestPayload{
+		Downloads: items,
+		Label:     label, // Attaching the label lets us isolate this exact batch later
 	}
 
-	var resp DownloadResponse
-	// BaseResponse engine handles error checking automatically!
-	err := s.doRequest(ctx, "download-request", req, &resp)
+	var resp DownloadRequestResponse
+	err := s.doRequest(ctx, "download-request", payload, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -255,45 +256,21 @@ func (s *RequestService) RequestDownload(ctx context.Context, codes []string, la
 	return &resp, nil
 }
 
-type DownloadRequest struct {
-	// these IDs come from the DownloadOption.Id field
-	DownloadCodes []string `json:"downloadCodes"`
-	Label         string   `json:"label"`
-}
-
-type DownloadResponse struct {
-	BaseResponse
-	Data struct {
-		// Files ready to pull right now
-		AvailableDownloads []AvailableDownload `json:"availableDownloads"`
-		// Files the USGS is fetching from deep storage
-		PreparingDownloads []PreparingDownload `json:"preparingDownloads"`
-		// Files you already requested in this session
-		DuplicateProducts []string `json:"duplicateProducts"`
-	} `json:"data"`
-}
-
-type DownloadRetrieveRequest struct {
-	DownloadApplication string  `json:"downloadApplication,omitempty"`
-	Label               string  `json:"label,omitempty"`
-	DownloadIds         []int64 `json:"downloadIds,omitempty"`
-}
-
-// DownloadRetrieve checks the status of a previous DownloadRequest using its Label.
-func (s *RequestService) DownloadRetrieve(ctx context.Context, ids []int64, app string, label string) (*DownloadRetrieveResult, error) {
-	payload := DownloadRetrieveRequest{
-		DownloadApplication: app,
+// DownloadRetrieve checks the status of specifically queued assets using their unique tracking label.
+// Maps directly to the 'download-retrieve' M2M endpoint.
+func (s *RequestService) DownloadRetrieve(ctx context.Context, label string) (*DownloadRequestResponse, error) {
+	payload := DownloadRetrievePayload{
 		Label:               label,
-		DownloadIds:         ids,
+		DownloadApplication: "M2M",
 	}
 
-	var resp DownloadRetrieveResponse
-	err := s.client.doRequest(ctx, "download-retrieve", payload, &resp)
+	var resp DownloadRequestResponse
+	err := s.doRequest(ctx, "download-retrieve", payload, &resp)
 	if err != nil {
 		return nil, err
 	}
 
-	return &resp.Data, nil
+	return &resp, nil
 }
 
 func (s *RequestService) SubmitDownloadRequest(ctx context.Context, payload DownloadRequestPayload) (DownloadRequestResponse, error) {
