@@ -14,7 +14,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-var filePath string
+var (
+	filePath        string
+	downloadSysFlag string
+)
 
 var downloadCmd = &cobra.Command{
 	Use:   "download [scene IDs...]",
@@ -97,7 +100,8 @@ var downloadCmd = &cobra.Command{
 		}
 
 		// filter and resolve direct download URLs
-		items := client.Request.FilterForZip(options)
+		// items := client.Request.FilterForZip(options)
+		items := client.Request.FilterBySystem(options, downloadSysFlag)
 		links, err := client.Request.GetDownloadURLs(ctx, items)
 		if err != nil {
 			return fmt.Errorf("failed to retrieve download links: %w", err)
@@ -141,6 +145,7 @@ func init() {
 	downloadCmd.Flags().StringP("dataset", "d", "landsat_ot_c2_l1", "The USGS dataset name")
 	downloadCmd.Flags().IntP("concurrency", "c", 4, "Number of concurrent downloads")
 	downloadCmd.Flags().StringP("output", "o", "./downloads", "Output directory for downloaded files")
+	downloadCmd.Flags().StringVar(&downloadSysFlag, "sys", "", "Target M2M download system code (e.g., 'ls_zip', 'dds')")
 
 	viper.BindPFlag("dataset", downloadCmd.Flags().Lookup("dataset"))
 	viper.BindPFlag("concurrency", downloadCmd.Flags().Lookup("concurrency"))
