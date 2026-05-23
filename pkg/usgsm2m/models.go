@@ -284,24 +284,25 @@ type DownloadOption struct {
 }
 
 // DownloadResult is the core "package" of files returned by Request or Retrieve
-type DownloadResult struct {
-	AvailableDownloads []AvailableDownload `json:"availableDownloads"`
-	PreparingDownloads []PreparingDownload `json:"preparingDownloads"`
-	FailedDownloads    []FailedDownload    `json:"failedDownloads"`
-	DuplicateProducts  []string            `json:"duplicateProducts"`
+type DownloadRequestResult struct {
+	Available         []AvailableDownload `json:"availableDownloads"`
+	Preparing         []PreparingDownload `json:"preparingDownloads"`
+	Failed            []FailedDownload    `json:"failed"`
+	DuplicateProducts map[string]string   `json:"duplicateProducts"`
 }
 
 // DownloadRequestResponse is the "Receipt" from the download-request endpoint
 type DownloadRequestResponse struct {
 	BaseResponse
-	Data DownloadRequestResult `json:"data"`
+	RequestId int64                 `json:"requestId"`
+	Data      DownloadRequestResult `json:"data"`
 }
 
 // AvailableDownload represents a file that has a URL ready for the worker pool
 type AvailableDownload struct {
 	DownloadId  int64  `json:"downloadId"`
 	EntityId    string `json:"entityId"`
-	DownloadUrl string `json:"url"`
+	Url         string `json:"url"`
 	FileSize    int64  `json:"filesize"`
 	ProductName string `json:"productName"` // Keep this for logging/validation
 }
@@ -352,12 +353,12 @@ type DownloadRequestPayload struct {
 }
 
 // DownloadRequestResult will contain the response from the "download-request" method
-type DownloadRequestResult struct {
-	Available         []AvailableDownload `json:"availableDownloads"`
-	Preparing         []PreparingDownload `json:"preparingDownloads"`
-	Failed            []FailedDownload    `json:"failedDownloads"`
-	DuplicateProducts []string            `json:"duplicateProducts"`
-}
+// type DownloadRequestResult struct {
+// 	Available         []AvailableDownload `json:"availableDownloads"`
+// 	Preparing         []PreparingDownload `json:"preparingDownloads"`
+// 	Failed            []FailedDownload    `json:"failedDownloads"`
+// 	DuplicateProducts []string            `json:"duplicateProducts"`
+// }
 
 // RequestedDownload represents a file that the USGS is still preparing
 type RequestedDownload struct {
@@ -370,6 +371,13 @@ type DownloadItem struct {
 	DownloadId int64  `json:"downloadId"`
 	EntityId   string `json:"entityId"`
 	URL        string `json:"url,omitempty"` // URL is empty if still preparing
+}
+
+// DownloadRetrievePayload defines the filtering criteria for fetching staged download links.
+// Maps to the USGS M2M 'download-retrieve' request endpoint.
+type DownloadRetrievePayload struct {
+	DownloadApplication string `json:"downloadApplication,omitempty"`
+	Label               string `json:"label,omitempty"`
 }
 
 type DownloadRetrieveResult struct {
