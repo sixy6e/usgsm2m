@@ -40,7 +40,7 @@ token = "your_token"
 [defaults]
 dataset = "landsat_ot_c2_l1"
 concurrency = 6
-output\_dir = "./downloads/"
+output_dir = "./downloads/"
 ```
 
 ## Spatial search and filtering
