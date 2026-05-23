@@ -28,6 +28,19 @@ The CLI reads credentials from your shell environment variables to ensure secure
 export USGS\_USERNAME="your\_username"
 export USGS\_AUTH\_TOKEN="your\_token\_or\_api\_key"
 
+Or via TOML eg ".usgs-m2m.toml"
+
+```toml
+[auth]
+username = "your_username"
+token = "your_token"
+
+[defaults]
+dataset = "landsat\_ot\_c2\_l1"
+concurrency = 6
+output\_dir = "./downloads/"
+```
+
 ## Spatial search and filtering
 
 The **search** subcommand supports dataset targeting, cloud cover constraints, temporal bounds,
