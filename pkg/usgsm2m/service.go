@@ -154,10 +154,10 @@ func (s *RequestService) GetDownloadURLs(ctx context.Context, items []DownloadRe
 		return nil, fmt.Errorf("no download items provided")
 	}
 
-	// Generate a unique tracking label for this run's download transaction batch
+	// generate a unique tracking label for this run's download transaction batch
 	batchLabel := fmt.Sprintf("m2m_ingest_%d", time.Now().Unix())
 
-	// 1. Submit the initial structural batch request with our tracking label
+	// submit the initial structural batch request with our tracking label
 	resp, err := s.DownloadRequest(ctx, items, batchLabel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to submit download request: %w", err)
@@ -165,12 +165,12 @@ func (s *RequestService) GetDownloadURLs(ctx context.Context, items []DownloadRe
 
 	links := make(map[string]string)
 
-	// Harvest anything resting in active hot storage immediately
+	// harvest anything resting in active hot storage immediately
 	for _, d := range resp.Data.Available {
 		links[d.EntityId] = d.Url
 	}
 
-	// 2. If entities are stuck staging, loop and poll using our unique batch label
+	// if entities are stuck staging, loop and poll using our unique batch label
 	if len(resp.Data.Preparing) > 0 {
 		s.client.logger.Info(
 			"M2M system is preparing entities for download. Awaiting staging infrastructure...",
@@ -182,23 +182,23 @@ func (s *RequestService) GetDownloadURLs(ctx context.Context, items []DownloadRe
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(15 * time.Second): // Give the USGS hardware time to pull files
+			case <-time.After(15 * time.Second): // give the USGS hardware time to pull files
 			}
 
-			// Poll the retrieval status passing our tracking batch label
+			// poll the retrieval status passing our tracking batch label
 			retrieveResp, err := s.DownloadRetrieve(ctx, batchLabel)
 			if err != nil {
 				return nil, fmt.Errorf("failed during staging retrieval: %w", err)
 			}
 
-			// Harvest newly available download endpoints
+			// harvest newly available download endpoints
 			for _, d := range retrieveResp.Data.Available {
 				if _, exists := links[d.EntityId]; !exists {
 					links[d.EntityId] = d.Url
 				}
 			}
 
-			// Break out once the staging queue for our label context drops to zero
+			// break out once the staging queue for our label context drops to zero
 			remaining := len(retrieveResp.Data.Preparing)
 			if remaining == 0 {
 				s.client.logger.Info("All entities successfully staged and ready for transfer.")
@@ -229,7 +229,7 @@ func (s *RequestService) GetDownloadOptions(ctx context.Context, dataset string,
 	if err != nil {
 		return nil, err
 	}
-	s.client.logger.Info("download options return", "data", resp.Data)
+	// s.client.logger.Info("download options return", "data", resp.Data)
 
 	var allOptions []DownloadOption
 	for _, opt := range resp.Data {
