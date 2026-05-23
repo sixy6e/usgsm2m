@@ -174,6 +174,27 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, payload interfa
 	}
 	defer resp.Body.Close()
 
+	// // ******************* temp block **********************************
+	// // Read all the raw bytes out of the network response body stream
+	// bodyBytes, err := io.ReadAll(resp.Body)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to read response body for debugging: %w", err)
+	// }
+
+	// // Format the JSON nicely so it's readable (indent with spaces)
+	// var prettyJSON bytes.Buffer
+	// if err := json.Indent(&prettyJSON, bodyBytes, "", "    "); err == nil {
+	// 	fmt.Println("--- DEBUG RAW API RESPONSE ---")
+	// 	fmt.Println(prettyJSON.String())
+	// 	fmt.Println("------------------------------")
+	// } else {
+	// 	// Fallback to raw string if it's not valid JSON
+	// 	fmt.Printf("--- DEBUG RAW STRING ---\n%s\n------------------------\n", string(bodyBytes))
+	// }
+
+	// // CRITICAL: Put the bytes BACK into a stream so the decoder can still read it!
+	// resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
 	// decode JSON response
 	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
 		return fmt.Errorf("decode response: %w", err)
@@ -223,55 +244,6 @@ func (c *Client) GetDownloadOptions(ctx context.Context, dataset string, entityI
 	}
 
 	return resp.Data, nil
-}
-
-// RequestDownload submits a list of Download IDs to the USGS for processing.
-func (c *Client) RequestDownload(ctx context.Context, downloadIds []string, label string) (*DownloadRequestResponse, error) {
-	// wrap the IDs into the format USGS expects
-	downloads := make([]map[string]string, len(downloadIds))
-	for i, id := range downloadIds {
-		downloads[i] = map[string]string{"downloadId": id}
-	}
-
-	req := map[string]interface{}{
-		"downloads": downloads,
-		"label":     label,
-	}
-
-	var resp DownloadRequestResponse
-	err := c.doRequest(ctx, "download-request", req, &resp)
-	if err != nil {
-		return nil, err
-	}
-
-	return &resp, nil
-}
-
-// SmartBatchRequest finds the 'Bundle' option for each EntityID and requests the download.
-func (c *Client) SmartBatchRequest(ctx context.Context, dataset string, entityIds []string, label string) error {
-	// we'll ask for all options
-	opts, err := c.GetDownloadOptions(ctx, dataset, entityIds)
-	if err != nil {
-		return err
-	}
-
-	// TODO check and confirm whether "bundle" can work for other datasets eg modis viirs
-	// filter for "Bundles" (Level-1 GeoTIFF Product Bundle)
-	// could build other filters
-	var downloadIds []string
-	for _, opt := range opts {
-		if opt.Available && strings.Contains(strings.ToLower(opt.ProductName), "bundle") {
-			downloadIds = append(downloadIds, opt.Id)
-		}
-	}
-
-	if len(downloadIds) == 0 {
-		return fmt.Errorf("no download bundles found for the provided scenes")
-	}
-
-	// submit the download request
-	_, err = c.RequestDownload(ctx, downloadIds, label)
-	return err
 }
 
 func (c *Client) SceneSearch(ctx context.Context, req SceneSearchRequest) (*SceneSearchResponse, error) {
