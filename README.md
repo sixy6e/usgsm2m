@@ -38,7 +38,7 @@ username = "your_username"
 token = "your_token"
 
 [defaults]
-dataset = "landsat\_ot\_c2\_l1"
+dataset = "landsat_ot_c2_l1"
 concurrency = 6
 output\_dir = "./downloads/"
 ```
