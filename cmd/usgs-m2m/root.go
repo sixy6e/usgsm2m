@@ -44,7 +44,7 @@ func initConfig() {
 	viper.AddConfigPath("$HOME")
 	viper.AddConfigPath(".")
 	viper.AutomaticEnv()
-	viper.SetEnvPrefix("M2M")
+	viper.SetEnvPrefix("USGS_M2M")
 
 	viper.SetDefault("concurrency", 4)
 	viper.SetDefault("dataset", "landsat_ot_c2_l1")
