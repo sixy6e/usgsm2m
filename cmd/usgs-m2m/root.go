@@ -20,8 +20,8 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "m2m",
-	Short: "m2m is a CLI tool for downloading USGS datasets like Landsat, MODIS, and VIIRS",
+	Use:   "usgs-m2m",
+	Short: "usgs-m2m is a CLI tool for downloading USGS datasets like Landsat, MODIS, and VIIRS",
 }
 
 func init() {
@@ -39,7 +39,7 @@ func init() {
 }
 
 func initConfig() {
-	viper.SetConfigName(".m2m")
+	viper.SetConfigName(".usgs-m2m")
 	viper.SetConfigType("toml")
 	viper.AddConfigPath("$HOME")
 	viper.AddConfigPath(".")
@@ -54,7 +54,7 @@ func initConfig() {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if errors.As(err, &configFileNotFoundError) {
 			// missing config is an acceptable path
-			logger.Debug("No configuration file found (.m2m.toml); relying on defaults and environment variables")
+			logger.Debug("No configuration file found (.usgs-m2m.toml); relying on defaults and environment variables")
 		} else {
 			// crash if the file is there but unreadable or corrupted
 			log.Fatalf("Critical error reading configuration file: %v", err)
