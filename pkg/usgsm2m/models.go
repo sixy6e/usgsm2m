@@ -1,6 +1,7 @@
 package usgsm2m
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -283,12 +284,41 @@ type DownloadOption struct {
 	SecondaryDownloads []DownloadOption `json:"secondaryDownloads"`
 }
 
+// DuplicateProducts on the M2M side is polymorphic. When nothing M2M returns an
+// empty array. When populated M2M returns a map[string]string.
+type DuplicateProducts map[string]string
+
+// We need a specific UnmarshalJSON as the M2M side is polymorphic.
+// When nothing M2M returns an empty array.
+// When populated M2M returns a map[string]string.
+func (dp *DuplicateProducts) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	// If the first non-space character is '[', it's an empty array response -> []
+	trimmed := bytes.TrimSpace(data)
+	if trimmed[0] == '[' {
+		*dp = make(map[string]string)
+		return nil
+	}
+
+	// Otherwise, it's a real object map -> {"entityId": "label"}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+
+	*dp = m
+	return nil
+}
+
 // DownloadResult is the core "package" of files returned by Request or Retrieve
 type DownloadRequestResult struct {
 	Available         []AvailableDownload `json:"availableDownloads"`
 	Preparing         []PreparingDownload `json:"preparingDownloads"`
 	Failed            []FailedDownload    `json:"failed"`
-	DuplicateProducts map[string]string   `json:"duplicateProducts"`
+	DuplicateProducts DuplicateProducts   `json:"duplicateProducts"`
 }
 
 // DownloadRequestResponse is the "Receipt" from the download-request endpoint
