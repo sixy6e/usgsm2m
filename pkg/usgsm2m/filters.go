@@ -1,7 +1,5 @@
 package usgsm2m
 
-import "time"
-
 // AcquisitionFilter handles date ranges
 type AcquisitionFilter struct {
 	// The date the scene began acquisition - ISO 8601 Formatted Date
@@ -158,9 +156,11 @@ func WithGeoJson(data GeoJson) SpatialOption {
 
 type TemporalFilter struct {
 	// ISO 8601 Formatted Date
-	Start time.Time `json:"start"`
+	// Start time.Time `json:"start"`
+	Start string `json:"start"`
 	// ISO 8601 Formatted Date
-	End time.Time `json:"end"`
+	// End time.Time `json:"end"`
+	End string `json:"end"`
 }
 
 // DatasetFiltersResponse mirrors the top-level envelope returned by the 'dataset-filters' endpoint
