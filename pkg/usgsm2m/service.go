@@ -146,32 +146,70 @@ func isRetryable(err error) bool {
 	return false
 }
 
-// GetDownloadURLs takes a list of entity IDs and returns the direct download links.
-// This is the "Bridge" to the DownloadManager.
+// GetDownloadURLs takes a list of download items and returns their direct download links.
+// If the USGS M2M API flags any entities as preparing/staging, this function will automatically
+// poll the 'download-retrieve' endpoint until all items are fully cooked and available.
 func (s *RequestService) GetDownloadURLs(ctx context.Context, items []DownloadRequestItem) (map[string]string, error) {
 	if len(items) == 0 {
 		return nil, fmt.Errorf("no download items provided")
 	}
 
-	// Prepare the Download Request Item
-	req := map[string][]DownloadRequestItem{
-		// "downloadApplication": "M2M",
-		"downloads": items,
-	}
+	// Generate a unique tracking label for this run's download transaction batch
+	batchLabel := fmt.Sprintf("m2m_ingest_%d", time.Now().Unix())
 
-	var resp DownloadRequestResponse
-
-	// submit
-	err := s.doRequest(ctx, "download-request", req, &resp)
+	// 1. Submit the initial structural batch request with our tracking label
+	resp, err := s.DownloadRequest(ctx, items, batchLabel)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to submit download request: %w", err)
 	}
 
-	// map the results
-	s.client.logger.Info("download request response", "resp", resp)
 	links := make(map[string]string)
+
+	// Harvest anything resting in active hot storage immediately
 	for _, d := range resp.Data.Available {
-		links[d.EntityId] = d.DownloadUrl
+		links[d.EntityId] = d.Url
+	}
+
+	// 2. If entities are stuck staging, loop and poll using our unique batch label
+	if len(resp.Data.Preparing) > 0 {
+		s.client.logger.Info(
+			"M2M system is preparing entities for download. Awaiting staging infrastructure...",
+			"preparing_count", len(resp.Data.Preparing),
+			"batch_label", batchLabel,
+		)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(15 * time.Second): // Give the USGS hardware time to pull files
+			}
+
+			// Poll the retrieval status passing our tracking batch label
+			retrieveResp, err := s.DownloadRetrieve(ctx, batchLabel)
+			if err != nil {
+				return nil, fmt.Errorf("failed during staging retrieval: %w", err)
+			}
+
+			// Harvest newly available download endpoints
+			for _, d := range retrieveResp.Data.Available {
+				if _, exists := links[d.EntityId]; !exists {
+					links[d.EntityId] = d.Url
+				}
+			}
+
+			// Break out once the staging queue for our label context drops to zero
+			remaining := len(retrieveResp.Data.Preparing)
+			if remaining == 0 {
+				s.client.logger.Info("All entities successfully staged and ready for transfer.")
+				break
+			}
+
+			s.client.logger.Info(
+				"Scenes are still preparing on USGS servers. Retrying shortly...",
+				"remaining_count", remaining,
+			)
+		}
 	}
 
 	return links, nil
@@ -276,6 +314,44 @@ func (s *RequestService) FilterForMetadata(options []DownloadOption) []DownloadR
 	return items
 }
 
+// FilterBySystem filters products based on an explicit target download system (e.g., "dds", "ls_zip").
+// If targetSystem is empty, it falls back to selecting the first immediately available product per scene.
+func (s *RequestService) FilterBySystem(options []DownloadOption, targetSystem string) []DownloadRequestItem {
+	var items []DownloadRequestItem
+
+	// track which entities we've already matched to prevent submitting duplicate
+	// requests for the same scene if multiple files match the criteria.
+	seenEntities := make(map[string]bool)
+
+	useDefaultFallback := targetSystem == ""
+
+	for _, opt := range options {
+		// if the file isn't immediately downloadable, or we've already picked
+		// a product for this scene, skip it.
+		if !opt.Available || seenEntities[opt.EntityId] {
+			continue
+		}
+
+		match := false
+		if useDefaultFallback {
+			// fallback: grab the primary production asset available for immediate download
+			match = true
+		} else if strings.EqualFold(opt.DownloadSystem, targetSystem) {
+			match = true
+		}
+
+		if match {
+			items = append(items, DownloadRequestItem{
+				EntityId:  opt.EntityId,
+				ProductId: opt.Id,
+			})
+			seenEntities[opt.EntityId] = true
+		}
+	}
+
+	return items
+}
+
 func (s *RequestService) WaitUntilReady(ctx context.Context, ids []int64, label string, app string) error {
 	// track what we've already sent to the Downloader to avoid double-queueing
 	queued := make(map[int64]bool)
@@ -292,17 +368,17 @@ func (s *RequestService) WaitUntilReady(ctx context.Context, ids []int64, label 
 
 		// poll the USGS API
 		// this uses the s.doRequest we built with retries and auto-login
-		result, err := s.DownloadRetrieve(ctx, ids, label, app)
+		result, err := s.DownloadRetrieve(ctx, label)
 		if err != nil {
 			return fmt.Errorf("polling status failed: %w", err)
 		}
 
 		// dispatch Available Files
-		for _, d := range result.Available {
+		for _, d := range result.Data.Available {
 			if !queued[d.DownloadId] {
 				job := DownloadJob{
 					EntityId: d.EntityId,
-					URL:      d.DownloadUrl,
+					URL:      d.Url,
 				}
 
 				// enqueue into our Pond-backed worker pool
@@ -315,14 +391,14 @@ func (s *RequestService) WaitUntilReady(ctx context.Context, ids []int64, label 
 
 		// check if we are finished
 		// if 'Requested' is empty, USGS has finished preparing all files in this batch
-		if len(result.Requested) == 0 {
+		if len(result.Data.Preparing) == 0 {
 			s.client.logger.Info("All requested files have been prepared and queued", "label", label)
 			return nil
 		}
 
 		// being patient
 		s.client.logger.Info("Waiting for USGS preparation",
-			"preparing_count", len(result.Requested),
+			"preparing_count", len(result.Data.Preparing),
 			"next_poll", "60s")
 
 		select {
