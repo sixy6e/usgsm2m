@@ -50,17 +50,17 @@ and complex metadata filters (like WRS path/row ranges) to locate target scenes.
 
 * Search Landsat C2 L1 across path and row ranges with cloud cover constraints
 ```bash
-./usgs-m2m search -d landsat\_ot\_c2\_l1 -m "WRS Path=90:92" -m "WRS Row=80:82" --cloud 15 --json -l 10
+./usgs-m2m search -d landsat_ot_c2_l1 -m "WRS Path=90:92" -m "WRS Row=80:82" --cloud 15 --json -l 10
 ```
 
 * Search a specific path within a strict date window, outputting raw JSON metadata
 ```bash
-./usgs-m2m search -d landsat\_ot\_c2\_l1 -m "WRS Path=92" --start 2026-01-01 --end 2026-03-31 --json
+./usgs-m2m search -d landsat_ot_c2_l1 -m "WRS Path=92" --start 2026-01-01 --end 2026-03-31 --json
 ```
 
 * Pinpoint an exact WRS path/row cell intersection
 ```bash
-./usgs-m2m search -d landsat\_ot\_c2\_l1 -m "WRS Path=92" -m "WRS Row=84" --start 2026-01-01 --end 2026-03-31 --json
+./usgs-m2m search -d landsat_ot_c2_l1 -m "WRS Path=92" -m "WRS Row=84" --start 2026-01-01 --end 2026-03-31 --json
 ```
 
 ## High-Performance Bulk Downloads
@@ -70,18 +70,18 @@ the assets and blocking until they are delivered to hot storage.
 
 * Trigger an automated download and restore routine via a target delivery system (e.g., dds)
 ```bash
-./usgs-m2m download VIIRS2025176 -d viirs\_atmos --sys dds
+./usgs-m2m download VIIRS2025176 -d viirs_atmos --sys dds
 ```
 
 * Download multiple via their EntityID
 ```bash
-./m2m download LC80920802026143LGN00 LC80920812026143LGN00 -d landsat\_ot\_c2\_l1 --sys ls\_zip
+./usgs-m2m download LC80920802026143LGN00 LC80920812026143LGN00 -d landsat_ot_c2_l1 --sys ls_zip
 ```
 
 * Specify a file containing a list of EntityIDs
 ```bash
-./m2m search -d landsat\_ot\_c2\_l1 -m "WRS Path=90:92" -m "WRS Row=80:82" -l 2 > download-list.txt
-./m2m download -f download-list.txt -d landsat\_ot\_c2\_l1 --sys ls\_zip
+./usgs-m2m search -d landsat_ot_c2_l1 -m "WRS Path=90:92" -m "WRS Row=80:82" -l 2 > download-list.txt
+./usgs-m2m download -f download-list.txt -d landsat_ot_c2_l1 --sys ls_zip
 ```
 
 ## Metadata Field Discovery
@@ -89,5 +89,8 @@ the assets and blocking until they are delivered to hot storage.
 Because querying the USGS M2M API requires precise field names for metadata search arguments,
 you can discover all available searchable attributes for a specific dataset using the fields subcommand.
 
-# Output all valid searchable filter blocks and parameters for a dataset in JSON format
-./usgs-m2m fields landsat\_ot\_c2\_l1 --json
+* Output all valid searchable filter blocks and parameters for a dataset in JSON format
+
+```bash
+./usgs-m2m fields landsat_ot_c2_l1 --json
+```
