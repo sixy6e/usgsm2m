@@ -352,63 +352,16 @@ func (s *RequestService) FilterBySystem(options []DownloadOption, targetSystem s
 	return items
 }
 
-func (s *RequestService) WaitUntilReady(ctx context.Context, ids []int64, label string, app string) error {
-	// track what we've already sent to the Downloader to avoid double-queueing
-	queued := make(map[int64]bool)
-
-	s.client.logger.Info("Starting preparation poller", "label", label, "total_ids", len(ids))
-
-	for {
-		// immediate Context Check
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// poll the USGS API
-		// this uses the s.doRequest we built with retries and auto-login
-		result, err := s.DownloadRetrieve(ctx, label)
-		if err != nil {
-			return fmt.Errorf("polling status failed: %w", err)
-		}
-
-		// dispatch Available Files
-		for _, d := range result.Data.Available {
-			if !queued[d.DownloadId] {
-				job := DownloadJob{
-					EntityId: d.EntityId,
-					URL:      d.Url,
-				}
-
-				// enqueue into our Pond-backed worker pool
-				s.client.Downloader.Enqueue(ctx, job)
-
-				queued[d.DownloadId] = true
-				s.client.logger.Info("File ready - dispatched to queue", "entityId", d.EntityId)
-			}
-		}
-
-		// check if we are finished
-		// if 'Requested' is empty, USGS has finished preparing all files in this batch
-		if len(result.Data.Preparing) == 0 {
-			s.client.logger.Info("All requested files have been prepared and queued", "label", label)
-			return nil
-		}
-
-		// being patient
-		s.client.logger.Info("Waiting for USGS preparation",
-			"preparing_count", len(result.Data.Preparing),
-			"next_poll", "60s")
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(60 * time.Second):
-			// continue loop
-		}
-	}
-}
+// TODO: This function is currently deprecated and superseded by the unified,
+// wait-first pipeline in GetDownloadURLs().
+//
+// Historically, WaitUntilReady was an active streaming poller designed to feed
+// incoming download links directly into a background Downloader queue as they
+// became available on the USGS staging tier, rather than waiting for the entire
+// batch to finish cooking. It remains here as an architectural reference for
+// dynamic, low-memory streaming workloads if session sizes scale past memory limits.
+//
+// func (s *RequestService) WaitUntilReady(ctx context.Context, ids []int64, label string, app string) error { ... }
 
 // Recursive helper to find all "Leaf" products
 func flattenOptions(opt DownloadOption) []DownloadOption {
