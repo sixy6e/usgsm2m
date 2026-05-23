@@ -96,14 +96,13 @@ var searchCmd = &cobra.Command{
 			return fmt.Errorf("cloud filter error: %w", err)
 		}
 
+		sceneFilter.CloudCover = cloudFilter
+
 		// assemble the search criteria payload
 		req := usgsm2m.SceneSearchRequest{
 			DatasetName: cfg.Dataset,
 			MaxResults:  limitFlag,
-			SceneFilter: &usgsm2m.SceneFilter{
-				CloudCover: cloudFilter,
-				Metadata:   apiFilter,
-			},
+			SceneFilter: sceneFilter,
 		}
 
 		logger.Info("Executing scene search with metadata constraints...", "dataset", cfg.Dataset, "filters", len(parsedInputs))
