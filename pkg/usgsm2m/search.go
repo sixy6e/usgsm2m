@@ -86,6 +86,13 @@ type DatasetSearchResponse struct {
 	Data []Dataset `json:"data"` // Dataset-search returns a simple array
 }
 
+// Names returns a flat slice of dataset display names/aliases
+func (d DatasetSearchResponse) Names() []string {
+	return lo.Map(d.Data, func(ds Dataset, _ int) string {
+		return *ds.DatasetAlias // or ds.DatasetName depending on USGS field
+	})
+}
+
 // HasError checks if the USGS API returned a functional error
 func (b *BaseResponse) HasError() error {
 	if b.ErrorCode != nil && *b.ErrorCode != "" {
@@ -94,30 +101,72 @@ func (b *BaseResponse) HasError() error {
 	return nil
 }
 
+// SceneSearch executes a query to the M2M scene-search endpoint. Results are paginated by maxResults.
 func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter *SceneFilter, maxResults int64) ([]Scene, error) {
-	reqBody := SceneSearchRequest{
-		DatasetName: dataset,
-		SceneFilter: filter,
-		MaxResults:  maxResults,
+	var allScenes []Scene
+	var startingNumber int64 = 1
+
+	// if the user didn't specify a limit in the CLI (0), default to a solid batch size (100 is M2M default)
+	if maxResults <= 0 {
+		maxResults = 100
 	}
 
-	var response SceneSearchResponse
-	err := s.doRequest(ctx, "scene-search", reqBody, &response)
-	if err != nil {
-		return nil, err
+	for {
+		// calculate what we still need to satisfy the user's request limit
+		remaining := maxResults - int64(len(allScenes))
+		if remaining <= 0 {
+			break
+		}
+
+		// keep single requests safe from server-side timeouts by clamping to 100 max
+		pageSize := remaining
+		if pageSize > 100 {
+			pageSize = 100
+		}
+
+		reqBody := SceneSearchRequest{
+			DatasetName:    dataset,
+			SceneFilter:    filter,
+			MaxResults:     pageSize,
+			StartingNumber: startingNumber,
+		}
+
+		var response SceneSearchResponse
+		err := s.doRequest(ctx, "scene-search", reqBody, &response)
+		if err != nil {
+			return nil, err
+		}
+
+		// collate results
+		allScenes = append(allScenes, response.Data.Results...)
+
+		// log current status
+		s.client.logger.Info("Scene Search pagination status",
+			"collected", len(allScenes),
+			"total_hits", response.Data.TotalHits,
+		)
+
+		// break out if the API states there are no further records,
+		// or if we have satisfied the requested batch limit
+		if response.Data.NextRecord <= 0 || response.Data.RecordsReturned == 0 || int64(len(allScenes)) >= maxResults {
+			break
+		}
+
+		// update the cursor index for the next HTTP call
+		startingNumber = response.Data.NextRecord
 	}
 
-	return response.Data.Results, nil
+	return allScenes, nil
 }
 
-func (s *RequestService) DatasetSearch(ctx context.Context, req DatasetSearchRequest) (ds Datasets, err error) {
+func (s *RequestService) DatasetSearch(ctx context.Context, req DatasetSearchRequest) (dss []Dataset, err error) {
 	var resp DatasetSearchResponse
 	err = s.doRequest(ctx, "dataset-search", req, &resp)
 	if err != nil {
-		return ds, err
+		return dss, err
 	}
-	ds = Datasets{Datasets: resp.Data}
-	return ds, nil
+	dss = resp.Data
+	return dss, nil
 }
 
 // ValidateDataset checks if the provided string is a real dataset
@@ -127,5 +176,5 @@ func (s *RequestService) ValidateDataset(ctx context.Context, name string) (bool
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch dataset list: %w", err)
 	}
-	return lo.Contains(dss.Names(), name), nil
+	return lo.Contains(DatasetNames(dss), name), nil
 }
