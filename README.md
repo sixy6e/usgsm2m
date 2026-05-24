@@ -43,24 +43,31 @@ concurrency = 6
 output_dir = "./downloads/"
 ```
 
-## Spatial search and filtering
+## Spatial search and filtering of scenes
 
 The **search** subcommand supports dataset targeting, cloud cover constraints, temporal bounds,
 and complex metadata filters (like WRS path/row ranges) to locate target scenes.
 
 * Search Landsat C2 L1 across path and row ranges with cloud cover constraints
 ```bash
-./usgs-m2m search -d landsat_ot_c2_l1 -m "WRS Path=90:92" -m "WRS Row=80:82" --cloud 15 --json -l 10
+./usgs-m2m search scene -d landsat_ot_c2_l1 -m "WRS Path=90:92" -m "WRS Row=80:82" --cloud 15 --json -l 10
 ```
 
 * Search a specific path within a strict date window, outputting raw JSON metadata
 ```bash
-./usgs-m2m search -d landsat_ot_c2_l1 -m "WRS Path=92" --start 2026-01-01 --end 2026-03-31 --json
+./usgs-m2m search scene -d landsat_ot_c2_l1 -m "WRS Path=92" --start 2026-01-01 --end 2026-03-31 --json
 ```
 
 * Pinpoint an exact WRS path/row cell intersection
 ```bash
-./usgs-m2m search -d landsat_ot_c2_l1 -m "WRS Path=92" -m "WRS Row=84" --start 2026-01-01 --end 2026-03-31 --json
+./usgs-m2m search scene -d landsat_ot_c2_l1 -m "WRS Path=92" -m "WRS Row=84" --start 2026-01-01 --end 2026-03-31 --json
+```
+
+## Search the catalog for available datasets
+The search dataset command can be used to discover what datasets can be searched within via the
+search scene subcommand.
+```bash
+./usgs-m2m search dataset --json
 ```
 
 ## High-Performance Bulk Downloads
@@ -80,7 +87,7 @@ the assets and blocking until they are delivered to hot storage.
 
 * Specify a file containing a list of EntityIDs
 ```bash
-./usgs-m2m search -d landsat_ot_c2_l1 -m "WRS Path=90:92" -m "WRS Row=80:82" -l 2 > download-list.txt
+./usgs-m2m search scene -d landsat_ot_c2_l1 -m "WRS Path=90:92" -m "WRS Row=80:82" -l 2 > download-list.txt
 ./usgs-m2m download -f download-list.txt -d landsat_ot_c2_l1 --sys ls_zip
 ```
 
