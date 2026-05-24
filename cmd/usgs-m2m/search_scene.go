@@ -13,146 +13,141 @@ import (
 )
 
 var (
-	metaFlags []string
-	limitFlag int64
-	startFlag string
-	endFlag   string
-	cloudFlag string
+	metaFlags      []string
+	limitFlag      int64
+	startFlag      string
+	endFlag        string
+	cloudFlag      string
+	searchSceneCmd = &cobra.Command{
+		Use:   "scene",
+		Short: "Search for scene IDs using human-readable metadata filters",
+		Long:  `Queries the USGS M2M catalog by resolving friendly filter names (like WRS Path) into system IDs dynamically.`,
+		RunE:  runSearchScene,
+	}
 )
 
-var searchCmd = &cobra.Command{
-	Use:   "search",
-	Short: "Search for scene IDs using human-readable metadata filters",
-	Long:  `Queries the USGS M2M catalog by resolving friendly filter names (like WRS Path) into system IDs dynamically.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
+func runSearchScene(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
 
-		// authenticate and initialise the client
-		if cfg.Auth.Username == "" || cfg.Auth.Token == "" {
-			return fmt.Errorf("missing authentication credentials; please set username and token")
-		}
+	// structural credentials check
+	if cfg.Auth.Username == "" || cfg.Auth.Token == "" {
+		return fmt.Errorf("missing authentication credentials; please set username and token")
+	}
 
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-		defer stop()
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-		logger.Info("Initializing client for scene search", "user", cfg.Auth.Username)
-		client, err := usgsm2m.NewClient(
-			cfg.Auth.Username,
-			cfg.Auth.Token,
-			1,
-			cfg.Defaults.OutputDir,
-			usgsm2m.WithLogger(logger),
-		)
+	// authenticate and initialise the client
+	logger.Info("Initializing client for scene search", "user", cfg.Auth.Username)
+	client, err := usgsm2m.NewClient(
+		cfg.Auth.Username,
+		cfg.Auth.Token,
+		1,
+		cfg.Defaults.OutputDir,
+		usgsm2m.WithLogger(logger),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialise client: %w", err)
+	}
+
+	logger.Info("Logging into USGS M2M service...")
+	if err := client.Login(ctx); err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	// process and parse raw terminal flag strings
+	var parsedInputs []MetadataInput
+	for _, rawFlag := range metaFlags {
+		input, err := parseMetaFlag(rawFlag)
 		if err != nil {
-			return fmt.Errorf("failed to initialise client: %w", err)
+			return fmt.Errorf("flag parsing error: %w", err)
 		}
+		parsedInputs = append(parsedInputs, input)
+	}
 
-		logger.Info("Logging into USGS M2M service...")
-		if err := client.Login(ctx); err != nil {
-			return fmt.Errorf("authentication failed: %w", err)
+	// create the single resolver instance to benefit from the internal cache
+	resolver := NewFieldResolver(client)
+	apiFilter, err := BuildMetadataFilter(ctx, resolver, cfg.Defaults.Dataset, parsedInputs)
+	if err != nil {
+		return fmt.Errorf("failed to construct metadata filter: %w", err)
+	}
+
+	// initialise the base SceneFilter with the resolved metadata pointer
+	sceneFilter := &usgsm2m.SceneFilter{
+		Metadata: apiFilter,
+	}
+
+	// check for partial date inputs
+	// USGS M2M might allow one empty side and insert either the earliest
+	// for missing start or now if missing the end
+	// but it's probably safer (and easier on the server) to not accidentally
+	// request something unexpectedly
+	if (startFlag != "" && endFlag == "") || (startFlag == "" && endFlag != "") {
+		return fmt.Errorf("both --start and --end dates must be specified together to set a temporal window")
+	}
+
+	// if we pass this check and at least one is set, it means both are set
+	if startFlag != "" {
+		sceneFilter.Acquisition = &usgsm2m.AcquisitionFilter{
+			Start: startFlag,
+			End:   endFlag,
 		}
+	}
 
-		// process and parse raw terminal flag strings
-		var parsedInputs []MetadataInput
-		for _, rawFlag := range metaFlags {
-			input, err := parseMetaFlag(rawFlag)
-			if err != nil {
-				return fmt.Errorf("flag parsing error: %w", err)
-			}
-			parsedInputs = append(parsedInputs, input)
-		}
+	cloudFilter, err := parseCloudFilter(cloudFlag)
+	if err != nil {
+		return fmt.Errorf("cloud filter error: %w", err)
+	}
 
-		// create the single resolver instance to benefit from the internal cache
-		resolver := NewFieldResolver(client)
-		apiFilter, err := BuildMetadataFilter(ctx, resolver, cfg.Defaults.Dataset, parsedInputs)
-		if err != nil {
-			return fmt.Errorf("failed to construct metadata filter: %w", err)
-		}
+	sceneFilter.CloudCover = cloudFilter
 
-		// initialise the base SceneFilter with the resolved metadata pointer
-		sceneFilter := &usgsm2m.SceneFilter{
-			Metadata: apiFilter,
-		}
+	logger.Info("Executing scene search with metadata constraints...", "dataset", cfg.Defaults.Dataset, "filters", len(parsedInputs))
 
-		// check for partial date inputs
-		// USGS M2M might allow one empty side and insert either the earliest
-		// for missing start or now if missing the end
-		// but it's probably safer (and easier on the server) to not accidentally
-		// request something unexpectedly
-		if (startFlag != "" && endFlag == "") || (startFlag == "" && endFlag != "") {
-			return fmt.Errorf("both --start and --end dates must be specified together to set a temporal window")
-		}
+	results, err := client.Request.SceneSearch(ctx, cfg.Defaults.Dataset, sceneFilter, limitFlag)
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
 
-		// if we pass this check and at least one is set, it means both are set
-		if startFlag != "" {
-			sceneFilter.Acquisition = &usgsm2m.AcquisitionFilter{
-				Start: startFlag,
-				End:   endFlag,
-			}
-		}
+	nResults := len(results)
 
-		cloudFilter, err := parseCloudFilter(cloudFlag)
-		if err != nil {
-			return fmt.Errorf("cloud filter error: %w", err)
-		}
-
-		sceneFilter.CloudCover = cloudFilter
-
-		// assemble the search criteria payload
-		req := usgsm2m.SceneSearchRequest{
-			DatasetName: cfg.Defaults.Dataset,
-			MaxResults:  limitFlag,
-			SceneFilter: sceneFilter,
-		}
-
-		logger.Info("Executing scene search with metadata constraints...", "dataset", cfg.Defaults.Dataset, "filters", len(parsedInputs))
-
-		results, err := client.SceneSearch(ctx, req)
-		if err != nil {
-			return fmt.Errorf("search failed: %w", err)
-		}
-
-		nResults := len(results.Data.Results)
-
-		// output the discovered entity IDs
-		if nResults == 0 {
-			logger.Info("No scenes matched your search criteria.")
-			return nil
-		}
-
-		entityIDs := make([]string, nResults)
-		for i, scene := range results.Data.Results {
-			entityIDs[i] = scene.EntityId
-		}
-
-		logger.Info("search results returned",
-			"count", nResults,
-			"max_results_limit", limitFlag,
-		)
-
-		if asJSON {
-			encoder := json.NewEncoder(os.Stdout)
-			encoder.SetIndent("", "    ") // some nicer formatting
-
-			output := struct {
-				EntityIDs []string `json:"entity_ids"`
-			}{
-				EntityIDs: entityIDs,
-			}
-
-			if err := encoder.Encode(output); err != nil {
-				return fmt.Errorf("failed to encode entity IDs to JSON: %w", err)
-			}
-		} else {
-			for _, scene := range entityIDs {
-				// using standard printed output so it can easily be redirected or piped
-				// directly into the download tool or an ID text file
-				fmt.Println(scene)
-			}
-		}
-
+	// output the discovered entity IDs
+	if nResults == 0 {
+		logger.Info("No scenes matched your search criteria.")
 		return nil
-	},
+	}
+
+	entityIDs := make([]string, nResults)
+	for i, scene := range results {
+		entityIDs[i] = scene.EntityId
+	}
+
+	logger.Info("search results returned",
+		"count", nResults,
+		"max_results_limit", limitFlag,
+	)
+
+	if asJSON {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "    ") // some nicer formatting
+
+		output := struct {
+			EntityIDs []string `json:"entity_ids"`
+		}{
+			EntityIDs: entityIDs,
+		}
+
+		if err := encoder.Encode(output); err != nil {
+			return fmt.Errorf("failed to encode entity IDs to JSON: %w", err)
+		}
+	} else {
+		for _, scene := range entityIDs {
+			// using standard printed output so it can easily be redirected or piped
+			// directly into the download tool or an ID text file
+			fmt.Println(scene)
+		}
+	}
+
+	return nil
 }
 
 func BuildMetadataFilter(ctx context.Context, resolver *FieldResolver, dataset string, inputs []MetadataInput) (*usgsm2m.MetadataFilter, error) {
@@ -200,17 +195,18 @@ func BuildMetadataFilter(ctx context.Context, resolver *FieldResolver, dataset s
 }
 
 func init() {
-	rootCmd.AddCommand(searchCmd)
-
 	// StringSliceVarP lets a user use -m multiple times in one execution
-	searchCmd.Flags().StringSliceVarP(&metaFlags, "meta", "m", []string{}, "Metadata filters to apply (e.g. -m 'WRS Path=90' -m 'WRS Row=32')")
-	searchCmd.Flags().StringP("dataset", "d", "landsat_ot_c2_l1", "The USGS dataset name")
-	searchCmd.Flags().Int64VarP(&limitFlag, "limit", "l", 100, "Maximum number of scenes to return")
+	searchSceneCmd.Flags().StringSliceVarP(&metaFlags, "meta", "m", []string{}, "Metadata filters to apply (e.g. -m 'WRS Path=90' -m 'WRS Row=32')")
+	searchSceneCmd.Flags().StringP("dataset", "d", "landsat_ot_c2_l1", "The USGS dataset name")
+	searchSceneCmd.Flags().Int64VarP(&limitFlag, "limit", "l", 100, "Maximum number of scenes to return")
 
 	// acquisition date window flags
-	searchCmd.Flags().StringVar(&startFlag, "start", "", "Start date for scene acquisition (YYYY-MM-DD)")
-	searchCmd.Flags().StringVar(&endFlag, "end", "", "End date for scene acquisition (YYYY-MM-DD)")
+	searchSceneCmd.Flags().StringVar(&startFlag, "start", "", "Start date for scene acquisition (YYYY-MM-DD)")
+	searchSceneCmd.Flags().StringVar(&endFlag, "end", "", "End date for scene acquisition (YYYY-MM-DD)")
 
 	// cloud filtering
-	searchCmd.Flags().StringVar(&cloudFlag, "cloud", "", "Filter by cloud cover percentage (e.g., '15' for 0-15%, or '10:20')")
+	searchSceneCmd.Flags().StringVar(&cloudFlag, "cloud", "", "Filter by cloud cover percentage (e.g., '15' for 0-15%, or '10:20')")
+
+	// attach to parent search command
+	searchCmd.AddCommand(searchSceneCmd)
 }
