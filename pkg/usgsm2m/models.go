@@ -8,7 +8,6 @@ import (
 
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/geojson"
-	"github.com/samber/lo"
 )
 
 type Coordinate struct {
@@ -134,10 +133,10 @@ type SpatialBounds struct {
 	Geometry orb.Geometry
 
 	// Minimum Bounding Rectangle (MBR) fields
-	North string `json:"north,omitempty"`
-	East  string `json:"east,omitempty"`
-	South string `json:"south,omitempty"`
-	West  string `json:"west,omitempty"`
+	North float64 `json:"north,omitempty"`
+	East  float64 `json:"east,omitempty"`
+	South float64 `json:"south,omitempty"`
+	West  float64 `json:"west,omitempty"`
 }
 
 func (sb *SpatialBounds) UnmarshalJSON(data []byte) error {
@@ -216,27 +215,28 @@ type Browse struct {
 }
 
 type Dataset struct {
-	AbstractText          string        `json:"abstractText"`
-	AcquisitionEnd        string        `json:"acquisitionEnd"`
-	AcquisitionStart      string        `json:"acquisitionStart"`
-	AllowInKmz            bool          `json:"allowInKmz"`
-	Catalogs              []string      `json:"catalogs"`
-	CollectionLongName    string        `json:"collectionLongName"`
-	CollectionName        string        `json:"collectionName"`
-	DataOwner             string        `json:"dataOwner"`
-	DatasetAlias          string        `json:"datasetAlias"`
-	DatasetCategoryName   string        `json:"datasetCategoryName"`
-	DatasetId             string        `json:"datasetId"`
-	DateUpdated           string        `json:"dateUpdated"`
-	DoiNumber             string        `json:"doiNumber"`
-	IngestFrequency       string        `json:"ingestFrequency"`
-	Keywords              string        `json:"keywords"`
-	LegacyId              int64         `json:"legacyId"`
-	SceneCount            int64         `json:"sceneCount"`
-	SpatialBounds         SpatialBounds `json:"spatialBounds"`
-	SupportCloudCover     bool          `json:"supportCloudCover"`
-	SupportDeletionSearch bool          `json:"supportDeletionSearch"`
-	TemporalCoverage      string        `json:"temporalCoverage"`
+	// Pointers are being used to prevent unmarshal panics when USGS returns null
+	AbstractText          *string        `json:"abstractText"`
+	AcquisitionEnd        *string        `json:"acquisitionEnd"`
+	AcquisitionStart      string         `json:"acquisitionStart"`
+	AllowInKmz            bool           `json:"allowInKmz"`
+	Catalogs              []string       `json:"catalogs"`
+	CollectionLongName    string         `json:"collectionLongName"`
+	CollectionName        string         `json:"collectionName"`
+	DataOwner             string         `json:"dataOwner"`
+	DatasetAlias          *string        `json:"datasetAlias"`
+	DatasetCategoryName   string         `json:"datasetCategoryName"`
+	DatasetId             string         `json:"datasetId"`
+	DateUpdated           string         `json:"dateUpdated"`
+	DoiNumber             *string        `json:"doiNumber"`
+	IngestFrequency       string         `json:"ingestFrequency"`
+	Keywords              string         `json:"keywords"`
+	LegacyId              *int64         `json:"legacyId"`
+	SceneCount            int64          `json:"sceneCount"`
+	SpatialBounds         *SpatialBounds `json:"spatialBounds"`
+	SupportCloudCover     bool           `json:"supportCloudCover"`
+	SupportDeletionSearch bool           `json:"supportDeletionSearch"`
+	TemporalCoverage      *string        `json:"temporalCoverage"`
 }
 
 // This allows doRequest to handle error checking generically.
@@ -432,9 +432,9 @@ type LogEntry struct {
 	Error     string `json:"error,omitempty"`
 }
 
-type Datasets struct {
-	Datasets []Dataset
-}
+// type Datasets struct {
+// 	Datasets []Dataset
+// }
 
 // SceneListAddRequest contains the input payload for the scene-list-add endpoint
 type SceneListAddRequest struct {
@@ -459,11 +459,11 @@ type SceneListAddRequest struct {
 }
 
 // Names returns a flat slice of dataset display names/aliases
-func (d Datasets) Names() []string {
-	return lo.Map(d.Datasets, func(ds Dataset, _ int) string {
-		return ds.DatasetAlias // or ds.DatasetName depending on USGS field
-	})
-}
+// func (d Datasets) Names() []string {
+// 	return lo.Map(d.Datasets, func(ds Dataset, _ int) string {
+// 		return ds.DatasetAlias // or ds.DatasetName depending on USGS field
+// 	})
+// }
 
 type DownloadJob struct {
 	EntityId    string
