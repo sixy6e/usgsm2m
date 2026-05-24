@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 // GetFilenameFromHeaders attempts to find the official filename in the response.
@@ -121,4 +123,27 @@ func (r *FieldResolver) Resolve(ctx context.Context, dataset string, fieldName s
 		return id, nil
 	}
 	return "", fmt.Errorf("field '%s' does not exist in dataset metadata", fieldName)
+}
+
+// DatasetNames extracts a flat slice of dataset alias names.
+// Null returns from USGS will default to empty values eg ""
+func DatasetNames(dss []Dataset) []string {
+	return lo.Map(dss, func(ds Dataset, _ int) string {
+		return lo.FromPtrOr(ds.DatasetAlias, "")
+	})
+}
+
+// DatasetIDs extracts a slice of unique platform IDs.
+func DatasetIDs(datasets []Dataset) []string {
+	return lo.Map(datasets, func(ds Dataset, _ int) string {
+		return ds.DatasetId
+	})
+}
+
+// DatasetTemporalCoverage extracts a flat slice of dataset temporal coverages.
+// Null returns from USGS will default to empty values eg ""
+func DatasetTemporalCoverage(dss []Dataset) []string {
+	return lo.Map(dss, func(ds Dataset, _ int) string {
+		return lo.FromPtrOr(ds.TemporalCoverage, "Unknown")
+	})
 }
