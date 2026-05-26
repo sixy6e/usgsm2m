@@ -36,12 +36,22 @@ func (s *RequestService) Cleanup(ctx context.Context, listId string) {
 
 func (s *RequestService) doRequest(ctx context.Context, method string, payload interface{}, result interface{}) error {
 	const maxRetries = 3
-	var lastErr error
+	var (
+		lastErr error
+		i       int
+	)
 
-	for i := 0; i < maxRetries; i++ {
+	for i = 0; i < maxRetries; i++ {
 		// handle backoff (skip for the first attempt)
 		if i > 0 {
 			wait := time.Duration(i*i) * time.Second
+
+			// SPECIAL CASE: if the previous error was a rate limit,
+			// force a heavy penalty wait to let the USGS database connections clear.
+			if lastErr != nil && strings.Contains(lastErr.Error(), "RATE_LIMIT") {
+				wait = 5 * time.Second
+			}
+
 			s.client.logger.Warn("Retrying USGS API", "method", method, "attempt", i+1, "wait", wait)
 
 			// ensure we don't sleep if the context is cancelled
@@ -54,13 +64,18 @@ func (s *RequestService) doRequest(ctx context.Context, method string, payload i
 
 		// delegate the actual HTTP work to the Client "Engine"
 		err := s.client.doRequest(ctx, method, payload, result)
-		s.client.logger.Info("request.doRequest", "error", err)
 		if err == nil {
 			return nil
 		}
 
 		lastErr = err
 
+		// log the actual failure inside the loop for distinct troubleshooting visibility
+		s.client.logger.Info("Attempt failed", "method", method, "attempt", i+1, "error", err)
+
+		// Check if it's structural (like bad JSON data) or fatal.
+		// If it's a RATE_LIMIT, it returns true, allowing us to drop into the next loop
+		// where it hits our 5-second backoff rule above.
 		// isRetryable should check for things like 500 errors or timeouts.
 		// 400 (Bad Request) should usually NOT be retried.
 		if !isRetryable(err) {
@@ -68,7 +83,8 @@ func (s *RequestService) doRequest(ctx context.Context, method string, payload i
 		}
 	}
 
-	return fmt.Errorf("%s failed after %d tries: %w", method, maxRetries, lastErr)
+	// Uses (i+1) instead of maxRetries so it accurately reflects how many attempts were made before breaking
+	return fmt.Errorf("%s failed after %d attempts: %w", method, i+1, lastErr)
 }
 
 func (s *RequestService) RemoveSceneList(ctx context.Context, listId string) error {
@@ -112,19 +128,23 @@ func (s *RequestService) AddToSceneListSafely(ctx context.Context, dataset, list
 	return confirmed
 }
 
+// isRetryable evaluates an error to determine if it is a transient failure
+// (like network timeouts, socket blips, server 5xx drops, or rate limits)
+// that could succeed on a subsequent attempt, or a fatal structural failure
+// (like bad payloads or 4xx auth errors) that should fail fast.
 func isRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// check for Timeouts
+	// check for timeouts
 	// this covers both network-level timeouts and context deadlines.
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
 
-	// check for Specific "Blips"
+	// check for specific socket "Blips"
 	// connection reset by peer, broken pipe, or connection refused.
 	errStr := err.Error()
 	if strings.Contains(errStr, "connection refused") ||
@@ -142,7 +162,14 @@ func isRetryable(err error) bool {
 		return true
 	}
 
-	// default: Fail fast on 4xx (Bad Request, Unauthorized, etc.)
+	// EXPLICITLY allow retries for USGS rate limit scenarios.
+	// combined with the 5-second backoff guard in doRequest,
+	// this will successfully recover from heavy spatial database locks.
+	if strings.Contains(errStr, "RATE_LIMIT") || strings.Contains(errStr, "status: 429") {
+		return true
+	}
+
+	// default: fail fast on standard 4xx (Bad Request, Unauthorized, etc.)
 	return false
 }
 
