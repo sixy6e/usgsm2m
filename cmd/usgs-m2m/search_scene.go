@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/sixy6e/usgsm2m/pkg/usgsm2m"
@@ -13,16 +15,23 @@ import (
 )
 
 var (
-	metaFlags      []string
-	limitFlag      int64
-	startFlag      string
-	endFlag        string
-	cloudFlag      string
-	searchSceneCmd = &cobra.Command{
+	metaFlags       []string
+	limitFlag       int64
+	startFlag       string
+	endFlag         string
+	cloudFlag       string
+	bboxFlag        string
+	geojsonFilePath string
+	searchSceneCmd  = &cobra.Command{
 		Use:   "scene",
 		Short: "Search for scene IDs using human-readable metadata filters",
-		Long:  `Queries the USGS M2M catalog by resolving friendly filter names (like WRS Path) into system IDs dynamically.`,
-		RunE:  runSearchScene,
+		Long:  `Queries the USGS M2M catalog by resolving friendly filter names (like WRS Path) and spatial bounds into system IDs dynamically.`,
+		Example: `  # Search using a spatial bounding box (note the quotes for negative coordinates)
+    usgs-m2m search scene -d landsat_ot_c2_l1 --bbox "146.0,-34.9,146.2,-34.7"
+
+  # Combine spatial bounds with a cloud cover filter
+    usgs-m2m search scene -d landsat_ot_c2_l1 --bbox "146.0,-34.9,146.2,-34.7" --cloud "10"`,
+		RunE: runSearchScene,
 	}
 )
 
@@ -100,6 +109,63 @@ func runSearchScene(cmd *cobra.Command, args []string) error {
 	}
 
 	sceneFilter.CloudCover = cloudFilter
+
+	// mutual exclusivity safety check
+	if bboxFlag != "" && geojsonFilePath != "" {
+		return fmt.Errorf("cannot specify both --bbox and --geojson; pick one spatial restriction method")
+	}
+
+	// prepare spatial filter
+	var spatialFilter *usgsm2m.SpatialFilter
+
+	// did the user parse a bbox flag?
+	if bboxFlag != "" {
+		logger.Info("setting spatial bounding box filter", "bbox", bboxFlag)
+
+		parts := strings.Split(bboxFlag, ",")
+		if len(parts) != 4 {
+			return fmt.Errorf("invalid bbox format: must be 4 comma-separated values (min_lon,min_lat,max_lon,max_lat)")
+		}
+
+		// convert inputs safely, trimming accidental padding spaces
+		minLon, err1 := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+		minLat, err2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+		maxLon, err3 := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+		maxLat, err4 := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64)
+
+		if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+			return fmt.Errorf("invalid bbox coordinates: all bounding values must be valid floating-point degrees")
+		}
+
+		// basic sanity validation to catch flipped parameters
+		if minLon > maxLon {
+			return fmt.Errorf("invalid bbox coordinates: min_lon (%f) cannot be greater than max_lon (%f)", minLon, maxLon)
+		}
+		if minLat > maxLat {
+			return fmt.Errorf("invalid bbox coordinates: min_lat (%f) cannot be greater than max_lat (%f)", minLat, maxLat)
+		}
+
+		// create
+		spatialFilter = usgsm2m.NewSpatialFilter(usgsm2m.WithMbr(minLat, minLon, maxLat, maxLon))
+
+		// add it in to existing scene filters
+		sceneFilter.Spatial = spatialFilter
+	}
+
+	// handle the GeoJSON text file
+	if geojsonFilePath != "" {
+		geom, err := usgsm2m.ParseGeoJSONFile(geojsonFilePath)
+		if err != nil {
+			return fmt.Errorf("invalid geojson input: %w", err)
+		}
+
+		// create the spatial filter
+		spatialFilter = usgsm2m.NewSpatialFilter(usgsm2m.WithGeoJSONGeometry(geom))
+		logger.Info("Successfully loaded search geometry from file", "path", geojsonFilePath, "type", geom.Type)
+
+		// add it in to existing scene filters
+		sceneFilter.Spatial = spatialFilter
+	}
 
 	logger.Info("Executing scene search with metadata constraints...", "dataset", cfg.Defaults.Dataset, "filters", len(parsedInputs))
 
@@ -206,6 +272,12 @@ func init() {
 
 	// cloud filtering
 	searchSceneCmd.Flags().StringVar(&cloudFlag, "cloud", "", "Filter by cloud cover percentage (e.g., '15' for 0-15%, or '10:20')")
+
+	// spatial filtering bbox
+	searchSceneCmd.Flags().StringVar(&bboxFlag, "bbox", "", "Filter by bounding box: min_lon,min_lat,max_lon,max_lat\n"+
+		"Must be wrapped in quotes if to prevent terminal flag parsing errors.\n"+
+		"Example: --bbox \"146.0,-34.9,146.2,-34.7\"")
+	searchSceneCmd.Flags().StringVar(&geojsonFilePath, "geojson", "", "Path to a local GeoJSON file containing search geometry (e.g., ./aoi.geojson)")
 
 	// attach to parent search command
 	searchCmd.AddCommand(searchSceneCmd)
