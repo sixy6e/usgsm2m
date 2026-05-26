@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/paulmach/orb/geojson"
 	"github.com/samber/lo"
 )
 
@@ -146,4 +147,36 @@ func DatasetTemporalCoverage(dss []Dataset) []string {
 	return lo.Map(dss, func(ds Dataset, _ int) string {
 		return lo.FromPtrOr(ds.TemporalCoverage, "Unknown")
 	})
+}
+
+// ParseGeoJSONFile reads a local file path and extracts a clean, standalone geojson.Geometry wrapper.
+func ParseGeoJSONFile(path string) (*geojson.Geometry, error) {
+	rawBytes, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// try parsing as a full FeatureCollection
+	if fc, err := geojson.UnmarshalFeatureCollection(rawBytes); err == nil {
+		if len(fc.Features) == 0 {
+			return nil, fmt.Errorf("geojson feature collection contains no features")
+		}
+		// fc.Features[0].Geometry is an orb.Geometry interface, so it MUST be wrapped
+		return geojson.NewGeometry(fc.Features[0].Geometry), nil
+	}
+
+	// fall back to parsing as a single standalone feature wrapper
+	if f, err := geojson.UnmarshalFeature(rawBytes); err == nil && f.Geometry != nil {
+		// f.Geometry is an orb.Geometry interface, so it MUST be wrapped
+		return geojson.NewGeometry(f.Geometry), nil
+	}
+
+	// fall back to parsing as a naked standalone geometry block
+	// This directly returns a *geojson.Geometry pointer! No wrapping needed.
+	geom, err := geojson.UnmarshalGeometry(rawBytes)
+	if err != nil {
+		return nil, fmt.Errorf("file contents do not match any valid GeoJSON schema structure: %w", err)
+	}
+
+	return geom, nil
 }
