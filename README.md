@@ -38,9 +38,7 @@ cd usgsm2m
 mage install
 ```
 
-### 4.
-
-* Check the help for usgs-m2m
+### 4. Check the help for usgs-m2m
 
 ```bash
 usgs-m2m is a CLI tool for downloading USGS datasets like Landsat, MODIS, and VIIRS
