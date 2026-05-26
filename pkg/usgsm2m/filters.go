@@ -1,5 +1,11 @@
 package usgsm2m
 
+import (
+	"encoding/json"
+
+	"github.com/paulmach/orb/geojson"
+)
+
 // AcquisitionFilter handles date ranges
 type AcquisitionFilter struct {
 	// The date the scene began acquisition - ISO 8601 Formatted Date
@@ -42,20 +48,18 @@ type IngestFilter struct {
 	End string `json:"end,omitempty"`
 }
 
+// SpatialFilter handles the abstract M2M data model.
+// By using pointers with omitempty, we can toggle between MBR and GeoJSON seamlessly.
 type SpatialFilter struct {
-	FilterType string `json:"filterType"` // "mbr", "geojson", "point", etc.
+	// Must be "mbr" or "geojson"
+	FilterType string `json:"filterType"`
 
-	// MBR (Minimum Bounding Box) fields
+	// MBR (Minimum Bounding Box) fields - explicit lower-case 'c' matching M2M specs
 	LowerLeft  *Coordinate `json:"lowerLeft,omitempty"`
 	UpperRight *Coordinate `json:"upperRight,omitempty"`
 
-	// GeoJSON fields
-	GeoJson interface{} `json:"geoJson,omitempty"`
-
-	// Point/Radius fields
-	// Longitude *float64 `json:"longitude,omitempty"`
-	// Latitude  *float64 `json:"latitude,omitempty"`
-	// Distance  *float64 `json:"distance,omitempty"` // in meters
+	// GeoJSON field - ready to accept raw bytes from paulmach/orb/geojson
+	GeoJson *json.RawMessage `json:"geoJson,omitempty"`
 }
 
 type SceneFilter struct {
@@ -119,22 +123,14 @@ func NewMbrFilter(minLat, minLon, maxLat, maxLon float64) SpatialFilter {
 	}
 }
 
-// NewGeoJsonFilter builds a filter from a GeoJSON object
-func NewGeoJsonFilter(data GeoJson) SpatialFilter {
-	return SpatialFilter{
-		FilterType: "geojson",
-		GeoJson:    data,
-	}
-}
-
 // NewSpatialFilter follows the options pattern. But as this is
 // a single option, is merely a generic constructor.
 // Keeping around both patterns to see which is more suitable
 // in the long run.
-func NewSpatialFilter(opt SpatialOption) SpatialFilter {
+func NewSpatialFilter(opt SpatialOption) *SpatialFilter {
 	f := &SpatialFilter{}
 	opt(f)
-	return *f
+	return f
 }
 
 // WithMbr sets the minimum bounding rectangle filter
@@ -146,11 +142,16 @@ func WithMbr(minLat, minLon, maxLat, maxLon float64) SpatialOption {
 	}
 }
 
-// WithGeoJson sets the geojson filter
-func WithGeoJson(data GeoJson) SpatialOption {
+// WithGeoJSONGeometry takes a pre-wrapped geojson.Geometry container (e.g., from ParseGeoJSONFile)
+// and marshals it directly into the SpatialFilter payload.
+func WithGeoJSONGeometry(geom *geojson.Geometry) SpatialOption {
 	return func(f *SpatialFilter) {
 		f.FilterType = "geojson"
-		f.GeoJson = data
+
+		bytes, _ := geom.MarshalJSON()
+
+		raw := json.RawMessage(bytes)
+		f.GeoJson = &raw
 	}
 }
 
