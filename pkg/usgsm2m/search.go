@@ -101,27 +101,29 @@ func (b *BaseResponse) HasError() error {
 	return nil
 }
 
-// SceneSearch executes a query to the M2M scene-search endpoint. Results are paginated by maxResults.
+// SceneSearch executes a query to the M2M scene-search endpoint.
+// If maxResults is > 0, it limits the total results. If maxResults <= 0, it drains the entire search result.
 func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter *SceneFilter, maxResults int64) ([]Scene, error) {
 	var allScenes []Scene
 	var startingNumber int64 = 1
 
-	// if the user didn't specify a limit in the CLI (0), default to a solid batch size (100 is M2M default)
-	if maxResults <= 0 {
-		maxResults = 100
-	}
+	// determine if the user set an explicit ceiling or wants an unlimited fetch
+	hasCeiling := maxResults > 0
+	const maxPageSize = 100 // USGS M2M optimal single-page batch size
 
 	for {
-		// calculate what we still need to satisfy the user's request limit
-		remaining := maxResults - int64(len(allScenes))
-		if remaining <= 0 {
-			break
-		}
+		// calculate the pageSize for this chunk
+		pageSize := int64(maxPageSize)
 
-		// keep single requests safe from server-side timeouts by clamping to 100 max
-		pageSize := remaining
-		if pageSize > 100 {
-			pageSize = 100
+		if hasCeiling {
+			remaining := maxResults - int64(len(allScenes))
+			if remaining <= 0 {
+				break // target ceiling met exactly
+			}
+			// clamp to remaining if we are approaching the limit
+			if remaining < pageSize {
+				pageSize = remaining
+			}
 		}
 
 		reqBody := SceneSearchRequest{
@@ -146,14 +148,23 @@ func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter
 			"total_hits", response.Data.TotalHits,
 		)
 
-		// break out if the API states there are no further records,
-		// or if we have satisfied the requested batch limit
-		if response.Data.NextRecord <= 0 || response.Data.RecordsReturned == 0 || int64(len(allScenes)) >= maxResults {
+		// evaluation and termination checks
+		if hasCeiling && int64(len(allScenes)) >= maxResults {
+			break
+		}
+
+		// break if the API reports no further records exist or returned zero this turn
+		if response.Data.NextRecord <= 0 || response.Data.RecordsReturned == 0 {
 			break
 		}
 
 		// update the cursor index for the next HTTP call
 		startingNumber = response.Data.NextRecord
+	}
+
+	// final slice guard to ensure strict compliance with user ceiling limits
+	if hasCeiling && int64(len(allScenes)) > maxResults {
+		allScenes = allScenes[:maxResults]
 	}
 
 	return allScenes, nil

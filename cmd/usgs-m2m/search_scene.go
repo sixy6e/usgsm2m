@@ -264,7 +264,7 @@ func init() {
 	// StringSliceVarP lets a user use -m multiple times in one execution
 	searchSceneCmd.Flags().StringSliceVarP(&metaFlags, "meta", "m", []string{}, "Metadata filters to apply (e.g. -m 'WRS Path=90' -m 'WRS Row=32')")
 	searchSceneCmd.Flags().StringP("dataset", "d", "landsat_ot_c2_l1", "The USGS dataset name")
-	searchSceneCmd.Flags().Int64VarP(&limitFlag, "limit", "l", 100, "Maximum number of scenes to return")
+	searchSceneCmd.Flags().Int64VarP(&limitFlag, "limit", "l", 0, "Maximum number of scenes to return (default 0 returns all scenes")
 
 	// acquisition date window flags
 	searchSceneCmd.Flags().StringVar(&startFlag, "start", "", "Start date for scene acquisition (YYYY-MM-DD)")
