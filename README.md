@@ -19,26 +19,21 @@ and orchestrating the staging of satellite imagery assets (such as Landsat and V
 This project uses [Mage](https://magefile.org/) for automated build and installation tasks. Make sure you have [Go](https://go.dev/doc/install) installed on your machine before proceeding.
 
 ### 1. Install Mage
-If you don't have the Mage build tool installed yet, you can fetch it quickly via Go:
+If you don't have the [Mage](https://github.com/magefile/mage) build tool installed yet, you can fetch it quickly via Go:
 
 ```bash
-go install [github.com/magefile/mage@latest](https://github.com/magefile/mage@latest)
+go install github.com/magefile/mage@latest
 ```
 
 ### 2. Clone and Install
 
 ```bash
-git clone [https://github.com/sixy6e/usgsm2m.git](https://github.com/sixy6e/usgsm2m.git)
+git clone https://github.com/sixy6e/usgsm2m.git
 cd usgsm2m
-```
-
-### 3. Compile and install the tool
-
-```bash
 mage install
 ```
 
-### 4. Check the help for usgs-m2m
+### 3. Check the help for usgs-m2m
 
 ```bash
 usgs-m2m is a CLI tool for downloading USGS datasets like Landsat, MODIS, and VIIRS
