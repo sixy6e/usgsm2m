@@ -239,19 +239,6 @@ type Dataset struct {
 	TemporalCoverage      *string        `json:"temporalCoverage"`
 }
 
-// This allows doRequest to handle error checking generically.
-type Response interface {
-	GetBase() *BaseResponse
-}
-
-type BaseResponse struct {
-	Version      string  `json:"version"`
-	ErrorCode    *string `json:"errorCode"`
-	ErrorMessage string  `json:"errorMessage"`
-	RequestId    int64   `json:"requestId"`
-	SessionId    *int64  `json:"sessionId"`
-}
-
 // Original label as defined by M2M docs.
 // type DownloadResponse struct {
 // 	Available          bool               `json:"available"`

@@ -7,11 +7,6 @@ import (
 	"github.com/samber/lo"
 )
 
-// GetBase allows BaseResponse to satisfy the Response interface.
-func (b *BaseResponse) GetBase() *BaseResponse {
-	return b
-}
-
 // SceneSearchRequest represents the payload for the 'scene-search' endpoint
 type SceneSearchRequest struct {
 	// Used to identify the dataset to search
@@ -91,14 +86,6 @@ func (d DatasetSearchResponse) Names() []string {
 	return lo.Map(d.Data, func(ds Dataset, _ int) string {
 		return *ds.DatasetAlias // or ds.DatasetName depending on USGS field
 	})
-}
-
-// HasError checks if the USGS API returned a functional error
-func (b *BaseResponse) HasError() error {
-	if b.ErrorCode != nil && *b.ErrorCode != "" {
-		return fmt.Errorf("USGS Error (%s): %s", *b.ErrorCode, b.ErrorMessage)
-	}
-	return nil
 }
 
 // SceneSearch executes a query to the M2M scene-search endpoint.

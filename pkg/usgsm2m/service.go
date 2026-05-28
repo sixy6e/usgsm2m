@@ -13,6 +13,32 @@ type RequestService struct {
 	client *Client
 }
 
+// This allows doRequest to handle error checking generically.
+type Response interface {
+	GetBase() *BaseResponse
+}
+
+type BaseResponse struct {
+	Version      string  `json:"version"`
+	ErrorCode    *string `json:"errorCode"`
+	ErrorMessage string  `json:"errorMessage"`
+	RequestId    int64   `json:"requestId"`
+	SessionId    *int64  `json:"sessionId"`
+}
+
+// GetBase allows BaseResponse to satisfy the Response interface.
+func (b *BaseResponse) GetBase() *BaseResponse {
+	return b
+}
+
+// HasError checks if the USGS API returned a functional error
+func (b *BaseResponse) HasError() error {
+	if b.ErrorCode != nil && *b.ErrorCode != "" {
+		return fmt.Errorf("USGS Error (%s): %s", *b.ErrorCode, b.ErrorMessage)
+	}
+	return nil
+}
+
 // Cleanup removes the temporary scene list from the USGS server.
 func (s *RequestService) Cleanup(ctx context.Context, listId string) {
 	if listId == "" {
