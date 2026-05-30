@@ -98,7 +98,10 @@ func NewClient(username, token string, maxWorkers int, outputDir string, opts ..
 
 	c.Downloader = dm
 
-	c.Request = &RequestService{client: c}
+	c.Request = &RequestService{
+		client:       c,
+		pollInterval: 15 * time.Second, // default. tests can override it
+	}
 	return c, nil
 }
 

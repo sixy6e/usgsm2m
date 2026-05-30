@@ -10,7 +10,8 @@ import (
 )
 
 type RequestService struct {
-	client *Client
+	client       *Client
+	pollInterval time.Duration
 }
 
 // ResponseEnvelope represents the standard outer shell returned by every USGS M2M API endpoint.

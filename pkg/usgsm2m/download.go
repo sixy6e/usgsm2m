@@ -403,7 +403,7 @@ func (s *RequestService) GetDownloadURLs(ctx context.Context, items []DownloadRe
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-time.After(15 * time.Second): // give the USGS hardware time to pull files
+			case <-time.After(s.pollInterval): // give the USGS hardware time to pull files
 			}
 
 			// poll the retrieval status passing our tracking batch label
