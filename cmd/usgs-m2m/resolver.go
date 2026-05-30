@@ -50,7 +50,7 @@ func (r *FieldResolver) Resolve(ctx context.Context, dataset string, label strin
 	}
 
 	// fetch fresh attributes from your newly integrated endpoint method!
-	fields, err := r.client.FetchDatasetFilters(ctx, dataset)
+	fields, err := r.client.Request.FetchDatasetFilters(ctx, dataset)
 	if err != nil {
 		return "", fmt.Errorf("failed fetching field metadata for mapping evaluation: %w", err)
 	}

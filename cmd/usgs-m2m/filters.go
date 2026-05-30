@@ -57,7 +57,7 @@ var filtersCmd = &cobra.Command{
 			return fmt.Errorf("authentication failed: %w", err)
 		}
 
-		filterFields, err := client.FetchDatasetFilters(ctx, datasetName)
+		filterFields, err := client.Request.FetchDatasetFilters(ctx, datasetName)
 		if err != nil {
 			return err
 		}
