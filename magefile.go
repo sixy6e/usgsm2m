@@ -83,3 +83,20 @@ func getGitVersion() string {
 	}
 	return string(out[:len(out)-1])
 }
+
+// Test runs all unit tests with full verbose output and data race detection.
+func Test() error {
+	fmt.Println("🧪 Running test suite...")
+
+	// -v: verbose logging, -race: catch concurrent memory corruption bugs early
+	cmd := exec.Command("go", "test", "-v", "-race", "./...")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("test suite encountered failures: %w", err)
+	}
+
+	fmt.Println("🎉 All tests passed successfully!")
+	return nil
+}
