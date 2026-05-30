@@ -53,6 +53,20 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
+// WithBaseURL overrides the default USGS endpoint (useful for testing).
+func WithBaseURL(url string) Option {
+	return func(c *Client) {
+		c.baseURL = url
+	}
+}
+
+// WithHTTPClient overrides the default network transport (useful for mock servers).
+func WithHTTPClient(httpClient *http.Client) Option {
+	return func(c *Client) {
+		c.httpClient = httpClient
+	}
+}
+
 // NewClient initializes the USGS M2M Client.
 func NewClient(username, token string, maxWorkers int, outputDir string, opts ...Option) (*Client, error) {
 	c := &Client{
