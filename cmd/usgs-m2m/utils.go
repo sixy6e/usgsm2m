@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -94,4 +96,40 @@ func parseCloudFilter(input string) (*usgsm2m.CloudCoverFilter, error) {
 		Max:            max,
 		IncludeUnknown: true, // typically true so one doesn't miss unrated scenes, or map to a flag
 	}, nil
+}
+
+// withClient encapsulates the repeated boilerplate of checking credentials,
+// initializing the client, logging in, and safely deferring a session logout.
+func withClient(ctx context.Context, action func(client *usgsm2m.Client) error) error {
+	// sanity check for required authentication fields
+	if cfg.Auth.Username == "" || cfg.Auth.Token == "" {
+		return fmt.Errorf("missing authentication credentials; please set username and token")
+	}
+
+	// initialize the client
+	client, err := usgsm2m.NewClient(
+		cfg.Auth.Username,
+		cfg.Auth.Token,
+		1, // retries
+		cfg.Defaults.OutputDir,
+		usgsm2m.WithLogger(logger),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialise client: %w", err)
+	}
+
+	// authenticate
+	if err := client.Login(ctx); err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
+	}
+
+	// global guard rail: every command wrapped in this function automatically logs out
+	defer func() {
+		if err := client.Logout(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "Error cleaning up session: %v\n", err)
+		}
+	}()
+
+	// execute the actual CLI action payload
+	return action(client)
 }
