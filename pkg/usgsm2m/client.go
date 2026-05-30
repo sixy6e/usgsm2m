@@ -112,19 +112,17 @@ func (c *Client) Login(ctx context.Context) error {
 		"token":    c.token,
 	}
 
-	var resp struct {
-		Data string `json:"data"` // The API Key is usually in the "data" field
-	}
+	var data string
 
 	// use login-token instead of the legacy login
 	// err := c.Request.doRequest(ctx, "login-token", req, &resp)
-	err := doRequest(ctx, c.Request, "login-token", req, &resp)
+	err := doRequest(ctx, c.Request, "login-token", req, &data)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	c.mu.Lock()
-	c.apiKey = resp.Data
+	c.apiKey = data
 	c.mu.Unlock()
 	c.logger.Info("Successfully authenticated with M2M", "session_active", true)
 	return nil
@@ -140,13 +138,11 @@ func (c *Client) Logout(ctx context.Context) error {
 		return nil
 	}
 
-	var resp struct {
-		Data bool `json:"data"`
-	}
+	var data bool
 
 	// perform the network call WITHOUT holding the lock
 	// doRequest will manage its own locking for headers
-	err := doRequest(ctx, c.Request, "logout", nil, &resp)
+	err := doRequest(ctx, c.Request, "logout", nil, &data)
 
 	// clear the key under lock
 	c.mu.Lock()
