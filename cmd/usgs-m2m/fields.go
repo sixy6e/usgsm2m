@@ -59,7 +59,7 @@ var fieldsCmd = &cobra.Command{
 		}
 
 		// execute the metadata fetch
-		metadataProfile, err := client.FetchDatasetMetadata(ctx, datasetName)
+		metadataProfile, err := client.Request.FetchDatasetMetadata(ctx, datasetName)
 		if err != nil {
 			return fmt.Errorf("failed to retrieve fields: %w", err)
 		}

@@ -44,16 +44,13 @@ type SceneSearchRequest struct {
 	IncludeNullMetadataValues bool `json:"includeNullMetadataValues,omitempty"`
 }
 
-type SceneSearchResponse struct {
-	BaseResponse
-	Data struct {
-		Results         []Scene `json:"results"`
-		TotalHits       int64   `json:"totalHits"`
-		NextRecord      int64   `json:"nextRecord"`
-		StartingNumber  int64   `json:"startingNumber"`
-		RecordsReturned int64   `json:"recordsReturned"`
-		NumExcluded     int64   `json:"numExcluded"`
-	} `json:"data"`
+type SceneSearchData struct {
+	Results         []Scene `json:"results"`
+	TotalHits       int64   `json:"totalHits"`
+	NextRecord      int64   `json:"nextRecord"`
+	StartingNumber  int64   `json:"startingNumber"`
+	RecordsReturned int64   `json:"recordsReturned"`
+	NumExcluded     int64   `json:"numExcluded"`
 }
 
 type DatasetSearchRequest struct {
@@ -152,84 +149,6 @@ type SceneFilter struct {
 	SeasonalFilter []int64 `json:"seasonalFilter,omitempty"`
 }
 
-// NewMetadataFilter is the single entry point using functional options
-func NewMetadataFilter(opts ...MetadataOption) MetadataFilter {
-	f := &MetadataFilter{}
-	for _, opt := range opts {
-		opt(f)
-	}
-	return *f
-}
-
-// WithValue sets the VALUE type and its fields
-func WithValue(id string, val interface{}, operand string) MetadataOption {
-	return func(f *MetadataFilter) {
-		f.FilterType = "value"
-		f.FilterId = id
-		f.Value = val
-		f.Operand = operand
-	}
-}
-
-// WithAnd nests other filters in an AND block
-func WithAnd(filters ...MetadataFilter) MetadataOption {
-	return func(f *MetadataFilter) {
-		f.FilterType = "and"
-		f.Filters = filters
-	}
-}
-
-// WithBetween sets up a range constraint on a specific metadata field ID
-func WithBetween(id string, first interface{}, second interface{}) MetadataOption {
-	return func(f *MetadataFilter) {
-		f.FilterType = "between"
-		f.FilterId = id
-		f.FirstValue = first
-		f.SecondValue = second
-	}
-}
-
-// NewMbrFilter builds a bounding box spatial filter
-func NewMbrFilter(minLat, minLon, maxLat, maxLon float64) SpatialFilter {
-	return SpatialFilter{
-		FilterType: "mbr",
-		LowerLeft:  &Coordinate{Longitude: minLon, Latitude: minLat},
-		UpperRight: &Coordinate{Longitude: maxLon, Latitude: maxLat},
-	}
-}
-
-// NewSpatialFilter follows the options pattern. But as this is
-// a single option, is merely a generic constructor.
-// Keeping around both patterns to see which is more suitable
-// in the long run.
-func NewSpatialFilter(opt SpatialOption) *SpatialFilter {
-	f := &SpatialFilter{}
-	opt(f)
-	return f
-}
-
-// WithMbr sets the minimum bounding rectangle filter
-func WithMbr(minLat, minLon, maxLat, maxLon float64) SpatialOption {
-	return func(f *SpatialFilter) {
-		f.FilterType = "mbr"
-		f.LowerLeft = &Coordinate{Longitude: minLon, Latitude: minLat}
-		f.UpperRight = &Coordinate{Longitude: maxLon, Latitude: maxLat}
-	}
-}
-
-// WithGeoJSONGeometry takes a pre-wrapped geojson.Geometry container (e.g., from ParseGeoJSONFile)
-// and marshals it directly into the SpatialFilter payload.
-func WithGeoJSONGeometry(geom *geojson.Geometry) SpatialOption {
-	return func(f *SpatialFilter) {
-		f.FilterType = "geojson"
-
-		bytes, _ := geom.MarshalJSON()
-
-		raw := json.RawMessage(bytes)
-		f.GeoJson = &raw
-	}
-}
-
 type TemporalFilter struct {
 	// ISO 8601 Formatted Date
 	// Start time.Time `json:"start"`
@@ -237,33 +156,6 @@ type TemporalFilter struct {
 	// ISO 8601 Formatted Date
 	// End time.Time `json:"end"`
 	End string `json:"end"`
-}
-
-// DatasetFiltersResponse mirrors the top-level envelope returned by the 'dataset-filters' endpoint
-type DatasetFiltersResponse struct {
-	RequestID    int64                `json:"requestId"`
-	Version      string               `json:"version"`
-	Data         []DatasetFilterField `json:"data"`
-	ErrorCode    string               `json:"errorCode,omitempty"`
-	ErrorMessage string               `json:"errorMessage,omitempty"`
-}
-
-// DatasetFilterField represents an individual searchable filter definition asset template
-type DatasetFilterField struct {
-	ID             string            `json:"id"`
-	LegacyFieldID  interface{}       `json:"legacyFieldId"` // Can be a null JSON block or integer
-	DictionaryLink string            `json:"dictionaryLink"`
-	FieldLabel     string            `json:"fieldLabel"`
-	SearchSQL      string            `json:"searchSql"`
-	FieldConfig    FieldConfigDetail `json:"fieldConfig"`
-	ValueList      map[string]string `json:"valueList,omitempty"` // Option maps e.g., {"8": "8", "9": "9"}
-}
-
-// FieldConfigDetail holds validation rules and interactive UI properties from USGS
-type FieldConfigDetail struct {
-	Type          string      `json:"type"` // "Text", "Range", "Select"
-	NumElements   interface{} `json:"numElements,omitempty"`
-	DisplayListID string      `json:"displayListId,omitempty"`
 }
 
 type Coordinate struct {
@@ -403,22 +295,6 @@ type Dataset struct {
 	TemporalCoverage      *string        `json:"temporalCoverage"`
 }
 
-type DownloadOption struct {
-	Available      bool   `json:"available"`
-	BulkAvailable  bool   `json:"bulkAvailable"`
-	DatasetId      string `json:"datasetId"`
-	DisplayId      string `json:"displayId"`
-	DownloadName   string `json:"downloadName"`
-	DownloadSystem string `json:"downloadSystem"`
-	EntityId       string `json:"entityId"`
-	Filesize       int64  `json:"filesize"`
-	Id             string `json:"id"`
-	ProductCode    string `json:"productCode"`
-	ProductName    string `json:"productName"`
-	// Recursive: some products have sub-products
-	SecondaryDownloads []DownloadOption `json:"secondaryDownloads"`
-}
-
 // DuplicateProducts on the M2M side is polymorphic. When nothing M2M returns an
 // empty array. When populated M2M returns a map[string]string.
 type DuplicateProducts map[string]string
@@ -429,76 +305,6 @@ type DownloadRequestResult struct {
 	Preparing         []PreparingDownload `json:"preparingDownloads"`
 	Failed            []FailedDownload    `json:"failed"`
 	DuplicateProducts DuplicateProducts   `json:"duplicateProducts"`
-}
-
-// DownloadRequestResponse is the "Receipt" from the download-request endpoint
-type DownloadRequestResponse struct {
-	BaseResponse
-	RequestId int64                 `json:"requestId"`
-	Data      DownloadRequestResult `json:"data"`
-}
-
-// AvailableDownload represents a file that has a URL ready for the worker pool
-type AvailableDownload struct {
-	DownloadId  int64  `json:"downloadId"`
-	EntityId    string `json:"entityId"`
-	Url         string `json:"url"`
-	FileSize    int64  `json:"filesize"`
-	ProductName string `json:"productName"` // Keep this for logging/validation
-}
-
-// PreparingDownload represents a file the USGS is currently fetching from tape/archive
-type PreparingDownload struct {
-	DownloadId int64  `json:"downloadId"`
-	EntityId   string `json:"entityId"`
-}
-
-type FailedDownload struct {
-	DownloadId   int64  `json:"downloadId"`
-	EntityId     string `json:"entityId"`
-	ErrorMessage string `json:"errorMessage"` // sometimes 'error' or 'message'
-}
-
-type DownloadRequestItem struct {
-	ProductId string `json:"productId"`
-	EntityId  string `json:"entityId"`
-}
-
-type DownloadRequestPayload struct {
-	Downloads []DownloadRequestItem `json:"downloads"`
-	Label     string                `json:"label,omitempty"` // Optional: name your "order"
-}
-
-// RequestedDownload represents a file that the USGS is still preparing
-type RequestedDownload struct {
-	DownloadId int64  `json:"downloadId"`
-	EntityId   string `json:"entityId"`
-}
-
-// DownloadItem refers to a single downloadable item
-type DownloadItem struct {
-	DownloadId int64  `json:"downloadId"`
-	EntityId   string `json:"entityId"`
-	URL        string `json:"url,omitempty"` // URL is empty if still preparing
-}
-
-// DownloadRetrievePayload defines the filtering criteria for fetching staged download links.
-// Maps to the USGS M2M 'download-retrieve' request endpoint.
-type DownloadRetrievePayload struct {
-	DownloadApplication string `json:"downloadApplication,omitempty"`
-	Label               string `json:"label,omitempty"`
-}
-
-type DownloadRetrieveResult struct {
-	Available []AvailableDownload `json:"available"`
-	Requested []PreparingDownload `json:"requested"`
-	QueueSize int64               `json:"queueSize"`
-	Eulas     []Eula              `json:"eulas"`
-}
-
-type DownloadRetrieveResponse struct {
-	BaseResponse
-	Data DownloadRetrieveResult `json:"data"`
 }
 
 type LogEntry struct {
@@ -533,39 +339,91 @@ type SceneListAddRequest struct {
 	CheckDownloadRestriction bool `json:"checkDownloadRestriction"`
 }
 
-type DownloadJob struct {
-	EntityId    string
-	ProductName string
-	URL         string
-}
-
-type SceneListAddResponse struct {
-	BaseResponse
+type SceneListAddData struct {
 	// The USGS returns the number of scenes successfully added in the "data" field
 	Count int `json:"data"`
 }
 
-type DatasetMetadataRequest struct {
-	DatasetName string `json:"datasetName"`
+// NewMetadataFilter is the single entry point using functional options
+func NewMetadataFilter(opts ...MetadataOption) MetadataFilter {
+	f := &MetadataFilter{}
+	for _, opt := range opts {
+		opt(f)
+	}
+	return *f
 }
 
-type DatasetMetadataResponse struct {
-	BaseResponse
-	Data map[string][]M2MFieldID `json:"data"` // potentially each dataset could have different fields
+// WithValue sets the VALUE type and its fields
+func WithValue(id string, val interface{}, operand string) MetadataOption {
+	return func(f *MetadataFilter) {
+		f.FilterType = "value"
+		f.FilterId = id
+		f.Value = val
+		f.Operand = operand
+	}
 }
 
-type M2MFieldID struct {
-	ID        string `json:"id"`
-	FieldName string `json:"field_name"`
+// WithAnd nests other filters in an AND block
+func WithAnd(filters ...MetadataFilter) MetadataOption {
+	return func(f *MetadataFilter) {
+		f.FilterType = "and"
+		f.Filters = filters
+	}
 }
 
-type DatasetSearchResponse struct {
-	BaseResponse
-	Data []Dataset `json:"data"` // Dataset-search returns a simple array
+// WithBetween sets up a range constraint on a specific metadata field ID
+func WithBetween(id string, first interface{}, second interface{}) MetadataOption {
+	return func(f *MetadataFilter) {
+		f.FilterType = "between"
+		f.FilterId = id
+		f.FirstValue = first
+		f.SecondValue = second
+	}
+}
+
+// NewMbrFilter builds a bounding box spatial filter
+func NewMbrFilter(minLat, minLon, maxLat, maxLon float64) SpatialFilter {
+	return SpatialFilter{
+		FilterType: "mbr",
+		LowerLeft:  &Coordinate{Longitude: minLon, Latitude: minLat},
+		UpperRight: &Coordinate{Longitude: maxLon, Latitude: maxLat},
+	}
+}
+
+// NewSpatialFilter follows the options pattern. But as this is
+// a single option, is merely a generic constructor.
+// Keeping around both patterns to see which is more suitable
+// in the long run.
+func NewSpatialFilter(opt SpatialOption) *SpatialFilter {
+	f := &SpatialFilter{}
+	opt(f)
+	return f
+}
+
+// WithMbr sets the minimum bounding rectangle filter
+func WithMbr(minLat, minLon, maxLat, maxLon float64) SpatialOption {
+	return func(f *SpatialFilter) {
+		f.FilterType = "mbr"
+		f.LowerLeft = &Coordinate{Longitude: minLon, Latitude: minLat}
+		f.UpperRight = &Coordinate{Longitude: maxLon, Latitude: maxLat}
+	}
+}
+
+// WithGeoJSONGeometry takes a pre-wrapped geojson.Geometry container (e.g., from ParseGeoJSONFile)
+// and marshals it directly into the SpatialFilter payload.
+func WithGeoJSONGeometry(geom *geojson.Geometry) SpatialOption {
+	return func(f *SpatialFilter) {
+		f.FilterType = "geojson"
+
+		bytes, _ := geom.MarshalJSON()
+
+		raw := json.RawMessage(bytes)
+		f.GeoJson = &raw
+	}
 }
 
 // Names returns a flat slice of dataset display names/aliases
-func (d DatasetSearchResponse) Names() []string {
+func (d DatasetSearchData) Names() []string {
 	return lo.Map(d.Data, func(ds Dataset, _ int) string {
 		return *ds.DatasetAlias // or ds.DatasetName depending on USGS field
 	})
@@ -576,6 +434,7 @@ func (d DatasetSearchResponse) Names() []string {
 func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter *SceneFilter, maxResults int64) ([]Scene, error) {
 	var allScenes []Scene
 	var startingNumber int64 = 1
+	var searchData SceneSearchData
 
 	// determine if the user set an explicit ceiling or wants an unlimited fetch
 	hasCeiling := maxResults > 0
@@ -603,19 +462,18 @@ func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter
 			StartingNumber: startingNumber,
 		}
 
-		var response SceneSearchResponse
-		err := s.doRequest(ctx, "scene-search", reqBody, &response)
+		err := doRequest(ctx, s, "scene-search", reqBody, &searchData)
 		if err != nil {
 			return nil, err
 		}
 
 		// collate results
-		allScenes = append(allScenes, response.Data.Results...)
+		allScenes = append(allScenes, searchData.Results...)
 
 		// log current status
 		s.client.logger.Info("Scene Search pagination status",
 			"collected", len(allScenes),
-			"total_hits", response.Data.TotalHits,
+			"total_hits", searchData.TotalHits,
 		)
 
 		// evaluation and termination checks
@@ -624,12 +482,12 @@ func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter
 		}
 
 		// break if the API reports no further records exist or returned zero this turn
-		if response.Data.NextRecord <= 0 || response.Data.RecordsReturned == 0 {
+		if searchData.NextRecord <= 0 || searchData.RecordsReturned == 0 {
 			break
 		}
 
 		// update the cursor index for the next HTTP call
-		startingNumber = response.Data.NextRecord
+		startingNumber = searchData.NextRecord
 	}
 
 	// final slice guard to ensure strict compliance with user ceiling limits
@@ -641,12 +499,12 @@ func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter
 }
 
 func (s *RequestService) DatasetSearch(ctx context.Context, req DatasetSearchRequest) (dss []Dataset, err error) {
-	var resp DatasetSearchResponse
-	err = s.doRequest(ctx, "dataset-search", req, &resp)
+	var datasetData DatasetSearchData
+	err = doRequest(ctx, s, "dataset-search", req, &datasetData)
 	if err != nil {
 		return dss, err
 	}
-	dss = resp.Data
+	dss = datasetData.Data
 	return dss, nil
 }
 

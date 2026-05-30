@@ -101,7 +101,7 @@ func (r *FieldResolver) Resolve(ctx context.Context, dataset string, fieldName s
 	// cache miss: fetch directly from M2M API using the correct endpoint wrapper
 	r.client.logger.Debug("Fetching dataset metadata fields from M2M API...", "dataset", dataset)
 
-	metadataProfile, err := r.client.FetchDatasetMetadata(ctx, dataset)
+	metadataProfile, err := r.client.Request.FetchDatasetMetadata(ctx, dataset)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch dataset metadata: %w", err)
 	}

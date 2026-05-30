@@ -13,28 +13,22 @@ type RequestService struct {
 	client *Client
 }
 
-// This allows doRequest to handle error checking generically.
-type Response interface {
-	GetBase() *BaseResponse
-}
-
-type BaseResponse struct {
+// ResponseEnvelope represents the standard outer shell returned by every USGS M2M API endpoint.
+// The Data field dynamically morphs into whatever inner struct payload you pass to it.
+type ResponseEnvelope[T any] struct {
 	Version      string  `json:"version"`
 	ErrorCode    *string `json:"errorCode"`
 	ErrorMessage string  `json:"errorMessage"`
-	RequestId    int64   `json:"requestId"`
-	SessionId    *int64  `json:"sessionId"`
+	RequestID    int64   `json:"requestId"`
+	SessionID    *int64  `json:"sessionId"`
+	Data         T       `json:"data"`
 }
 
-// GetBase allows BaseResponse to satisfy the Response interface.
-func (b *BaseResponse) GetBase() *BaseResponse {
-	return b
-}
-
-// HasError checks if the USGS API returned a functional error
-func (b *BaseResponse) HasError() error {
-	if b.ErrorCode != nil && *b.ErrorCode != "" {
-		return fmt.Errorf("USGS Error (%s): %s", *b.ErrorCode, b.ErrorMessage)
+// Error checks if the USGS API returned an explicit error payload.
+// We name it Error() so it naturally converts into a standard Go error type when needed!
+func (e *ResponseEnvelope[T]) Error() error {
+	if e.ErrorCode != nil && *e.ErrorCode != "" {
+		return fmt.Errorf("USGS Error (%s): %s", *e.ErrorCode, e.ErrorMessage)
 	}
 	return nil
 }
@@ -49,10 +43,11 @@ func (s *RequestService) Cleanup(ctx context.Context, listId string) {
 		"listId": listId,
 	}
 
-	var resp BaseResponse
+	// var resp BaseResponse
+	var data struct{}
 
 	// use a background-style log here because the job is technically "done"
-	err := s.doRequest(ctx, "scene-list-remove", req, &resp)
+	err := doRequest(ctx, s, "scene-list-remove", req, &data)
 	if err != nil {
 		s.client.logger.Warn("Failed to clean up remote scene list", "listId", listId, "err", err)
 	} else {
@@ -60,7 +55,11 @@ func (s *RequestService) Cleanup(ctx context.Context, listId string) {
 	}
 }
 
-func (s *RequestService) doRequest(ctx context.Context, method string, payload interface{}, result interface{}) error {
+// doRequest wraps the client transport logic, intercepts USGS-specific errors,
+// unmarshals into our generic response envelope, and manages backoffs.
+//
+// T represents the inner "data" struct type expected from the USGS endpoint.
+func doRequest[T any](ctx context.Context, s *RequestService, method string, payload interface{}, result *T) error {
 	const maxRetries = 3
 	var (
 		lastErr error
@@ -88,25 +87,43 @@ func (s *RequestService) doRequest(ctx context.Context, method string, payload i
 			}
 		}
 
+		// create a fresh instance of the generic envelope tailored to the expected data shape 'T'
+		var envelope ResponseEnvelope[T]
+
 		// delegate the actual HTTP work to the Client "Engine"
-		err := s.client.doRequest(ctx, method, payload, result)
-		if err == nil {
-			return nil
+		err := s.client.doRequest(ctx, method, payload, &envelope)
+		if err != nil {
+			lastErr = err
+			s.client.logger.Info("Request attempt failed", "method", method, "attempt", i+1, "error", err)
+
+			// Check if it's structural (like bad JSON data) or fatal.
+			// If it's a RATE_LIMIT, it returns true, allowing us to drop into the next loop
+			// where it hits our 5-second backoff rule above.
+			// isRetryable should check for things like 500 errors or timeouts.
+			// 400 (Bad Request) should usually NOT be retried.
+			if !isRetryable(err) {
+				break
+			}
+			continue
 		}
 
-		lastErr = err
+		// check for business/functional errors returned by the USGS API itself
+		if apiErr := envelope.Error(); apiErr != nil {
+			lastErr = apiErr
+			s.client.logger.Info("USGS API returned business error", "method", method, "attempt", i+1, "error", apiErr)
 
-		// log the actual failure inside the loop for distinct troubleshooting visibility
-		s.client.logger.Info("Attempt failed", "method", method, "attempt", i+1, "error", err)
+			// if it's a RATE_LIMIT, continue the loop so it hits our penalty backoff rule above
+			if envelope.ErrorCode != nil && *envelope.ErrorCode == "RATE_LIMIT" {
+				continue
+			}
 
-		// Check if it's structural (like bad JSON data) or fatal.
-		// If it's a RATE_LIMIT, it returns true, allowing us to drop into the next loop
-		// where it hits our 5-second backoff rule above.
-		// isRetryable should check for things like 500 errors or timeouts.
-		// 400 (Bad Request) should usually NOT be retried.
-		if !isRetryable(err) {
+			// for any other structural/fatal USGS error (like AUTH_FAILURE), fail-fast instantly
 			break
 		}
+
+		// Success! Extract the unwrapped, strongly-typed data and assign it to the caller's target pointer
+		*result = envelope.Data
+		return nil
 	}
 
 	// Uses (i+1) instead of maxRetries so it accurately reflects how many attempts were made before breaking
@@ -116,15 +133,15 @@ func (s *RequestService) doRequest(ctx context.Context, method string, payload i
 func (s *RequestService) RemoveSceneList(ctx context.Context, listId string) error {
 	req := map[string]string{"listId": listId}
 	// We don't need the result, just a check for API errors
-	var resp BaseResponse
-	return s.doRequest(ctx, "scene-list-remove", req, &resp)
+	var data struct{}
+	return doRequest(ctx, s, "scene-list-remove", req, &data)
 }
 
 // AddToSceneListSafely adds IDs one-by-one to avoid "all-or-nothing" failures.
 // It returns a slice of IDs that were successfully added.
 func (s *RequestService) AddToSceneListSafely(ctx context.Context, dataset, listId string, ids []string) []string {
 	var confirmed []string
-	var resp SceneListAddResponse
+	var data SceneListAddData
 
 	for _, id := range ids {
 		req := SceneListAddRequest{
@@ -137,7 +154,7 @@ func (s *RequestService) AddToSceneListSafely(ctx context.Context, dataset, list
 
 		// doRequest will automatically handle retries if the USGS
 		// server has a 500-series "hiccup"
-		err := s.doRequest(ctx, "scene-list-add", req, &resp)
+		err := doRequest(ctx, s, "scene-list-add", req, &data)
 		s.client.logger.Info("scene-list-add", "error", err)
 		if err != nil {
 			// if it's a 400 (Invalid ID), doRequest returns it,
@@ -199,212 +216,6 @@ func isRetryable(err error) bool {
 	return false
 }
 
-// GetDownloadURLs takes a list of download items and returns their direct download links.
-// If the USGS M2M API flags any entities as preparing/staging, this function will automatically
-// poll the 'download-retrieve' endpoint until all items are fully cooked and available.
-func (s *RequestService) GetDownloadURLs(ctx context.Context, items []DownloadRequestItem) (map[string]string, error) {
-	if len(items) == 0 {
-		return nil, fmt.Errorf("no download items provided")
-	}
-
-	// generate a unique tracking label for this run's download transaction batch
-	batchLabel := fmt.Sprintf("m2m_ingest_%d", time.Now().Unix())
-
-	// submit the initial structural batch request with our tracking label
-	resp, err := s.DownloadRequest(ctx, items, batchLabel)
-	if err != nil {
-		return nil, fmt.Errorf("failed to submit download request: %w", err)
-	}
-
-	links := make(map[string]string)
-
-	// harvest anything resting in active hot storage immediately
-	for _, d := range resp.Data.Available {
-		links[d.EntityId] = d.Url
-	}
-
-	// if entities are stuck staging, loop and poll using our unique batch label
-	if len(resp.Data.Preparing) > 0 {
-		s.client.logger.Info(
-			"M2M system is preparing entities for download. Awaiting staging infrastructure...",
-			"preparing_count", len(resp.Data.Preparing),
-			"batch_label", batchLabel,
-		)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(15 * time.Second): // give the USGS hardware time to pull files
-			}
-
-			// poll the retrieval status passing our tracking batch label
-			retrieveResp, err := s.DownloadRetrieve(ctx, batchLabel)
-			if err != nil {
-				return nil, fmt.Errorf("failed during staging retrieval: %w", err)
-			}
-
-			// harvest newly available download endpoints
-			for _, d := range retrieveResp.Data.Available {
-				if _, exists := links[d.EntityId]; !exists {
-					links[d.EntityId] = d.Url
-				}
-			}
-
-			// break out once the staging queue for our label context drops to zero
-			remaining := len(retrieveResp.Data.Preparing)
-			if remaining == 0 {
-				s.client.logger.Info("All entities successfully staged and ready for transfer.")
-				break
-			}
-
-			s.client.logger.Info(
-				"Scenes are still preparing on USGS servers. Retrying shortly...",
-				"remaining_count", remaining,
-			)
-		}
-	}
-
-	return links, nil
-}
-
-func (s *RequestService) GetDownloadOptions(ctx context.Context, dataset string, entityIds []string) ([]DownloadOption, error) {
-	req := map[string]interface{}{
-		"datasetName": dataset,
-		"entityIds":   entityIds,
-	}
-
-	var resp struct {
-		Data []DownloadOption `json:"data"`
-	}
-
-	err := s.doRequest(ctx, "download-options", req, &resp)
-	if err != nil {
-		return nil, err
-	}
-	// s.client.logger.Info("download options return", "data", resp.Data)
-
-	var allOptions []DownloadOption
-	for _, opt := range resp.Data {
-		// flatten the recursive structure
-		allOptions = append(allOptions, flattenOptions(opt)...)
-	}
-
-	return allOptions, nil
-}
-
-func (s *RequestService) FilterForBundles(options []DownloadOption) []DownloadRequestItem {
-	var items []DownloadRequestItem
-
-	for _, opt := range options {
-		if strings.Contains(opt.ProductName, "Bundle") {
-			items = append(items, DownloadRequestItem{
-				EntityId:  opt.EntityId,
-				ProductId: opt.Id,
-			})
-		}
-	}
-
-	return items
-}
-
-func (s *RequestService) FilterForZip(options []DownloadOption) []DownloadRequestItem {
-	var items []DownloadRequestItem
-
-	for _, opt := range options {
-		if strings.Contains(opt.DownloadSystem, "ls_zip") {
-			items = append(items, DownloadRequestItem{
-				EntityId:  opt.EntityId,
-				ProductId: opt.Id,
-			})
-		}
-	}
-
-	return items
-}
-
-func (s *RequestService) FilterOutDirs(options []DownloadOption) []DownloadRequestItem {
-	var items []DownloadRequestItem
-
-	for _, opt := range options {
-		if opt.DownloadSystem != "folder" {
-			items = append(items, DownloadRequestItem{
-				EntityId:  opt.EntityId,
-				ProductId: opt.Id,
-			})
-		}
-	}
-
-	return items
-}
-
-func (s *RequestService) FilterForPreviews(options []DownloadOption) []DownloadRequestItem {
-	var items []DownloadRequestItem
-	for _, opt := range options {
-		// 'Natural Color' or 'Full Resolution Browse'
-		if strings.Contains(opt.ProductName, "Natural Color") ||
-			strings.Contains(opt.ProductName, "Browse") {
-			items = append(items, DownloadRequestItem{
-				EntityId:  opt.EntityId,
-				ProductId: opt.Id,
-			})
-		}
-	}
-	return items
-}
-
-func (s *RequestService) FilterForMetadata(options []DownloadOption) []DownloadRequestItem {
-	var items []DownloadRequestItem
-	for _, opt := range options {
-		if strings.Contains(opt.ProductName, "Metadata") ||
-			strings.Contains(opt.ProductName, "XML") {
-			items = append(items, DownloadRequestItem{
-				EntityId:  opt.EntityId,
-				ProductId: opt.Id,
-			})
-		}
-	}
-	return items
-}
-
-// FilterBySystem filters products based on an explicit target download system (e.g., "dds", "ls_zip").
-// If targetSystem is empty, it falls back to selecting the first immediately available product per scene.
-func (s *RequestService) FilterBySystem(options []DownloadOption, targetSystem string) []DownloadRequestItem {
-	var items []DownloadRequestItem
-
-	// track which entities we've already matched to prevent submitting duplicate
-	// requests for the same scene if multiple files match the criteria.
-	seenEntities := make(map[string]bool)
-
-	useDefaultFallback := targetSystem == ""
-
-	for _, opt := range options {
-		// if the file isn't immediately downloadable, or we've already picked
-		// a product for this scene, skip it.
-		if !opt.Available || seenEntities[opt.EntityId] {
-			continue
-		}
-
-		match := false
-		if useDefaultFallback {
-			// fallback: grab the primary production asset available for immediate download
-			match = true
-		} else if strings.EqualFold(opt.DownloadSystem, targetSystem) {
-			match = true
-		}
-
-		if match {
-			items = append(items, DownloadRequestItem{
-				EntityId:  opt.EntityId,
-				ProductId: opt.Id,
-			})
-			seenEntities[opt.EntityId] = true
-		}
-	}
-
-	return items
-}
-
 // TODO: This function is currently deprecated and superseded by the unified,
 // wait-first pipeline in GetDownloadURLs().
 //
@@ -415,20 +226,3 @@ func (s *RequestService) FilterBySystem(options []DownloadOption, targetSystem s
 // dynamic, low-memory streaming workloads if session sizes scale past memory limits.
 //
 // func (s *RequestService) WaitUntilReady(ctx context.Context, ids []int64, label string, app string) error { ... }
-
-// Recursive helper to find all "Leaf" products
-func flattenOptions(opt DownloadOption) []DownloadOption {
-	var result []DownloadOption
-
-	// if it's a direct file (has a ProductCode and is Available)
-	if opt.ProductCode != "" && opt.Available {
-		result = append(result, opt)
-	}
-
-	// check for children
-	for _, sub := range opt.SecondaryDownloads {
-		result = append(result, flattenOptions(sub)...)
-	}
-
-	return result
-}

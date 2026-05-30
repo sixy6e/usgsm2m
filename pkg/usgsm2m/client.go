@@ -100,7 +100,8 @@ func (c *Client) Login(ctx context.Context) error {
 	}
 
 	// use login-token instead of the legacy login
-	err := c.Request.doRequest(ctx, "login-token", req, &resp)
+	// err := c.Request.doRequest(ctx, "login-token", req, &resp)
+	err := doRequest(ctx, c.Request, "login-token", req, &resp)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
@@ -127,8 +128,8 @@ func (c *Client) Logout(ctx context.Context) error {
 	}
 
 	// perform the network call WITHOUT holding the lock
-	// c.doRequest will manage its own locking for headers
-	err := c.Request.doRequest(ctx, "logout", nil, &resp)
+	// doRequest will manage its own locking for headers
+	err := doRequest(ctx, c.Request, "logout", nil, &resp)
 
 	// clear the key under lock
 	c.mu.Lock()
@@ -195,32 +196,14 @@ func (c *Client) doRequest(ctx context.Context, endpoint string, payload interfa
 	// // CRITICAL: Put the bytes BACK into a stream so the decoder can still read it!
 	// resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
+	// Handle non-200 HTTP codes (important so you don't try to parse HTML errors as JSON)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("unexpected http status: %s", resp.Status)
+	}
+
 	// decode JSON response
 	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
 		return fmt.Errorf("decode response: %w", err)
-	}
-
-	// USGS API-Level Error Handling & Auto-Refresh
-	if r, ok := result.(Response); ok {
-		base := r.GetBase()
-		if base == nil {
-			return fmt.Errorf("internal error: base response is nil")
-		}
-
-		if apiErr := base.HasError(); apiErr != nil {
-			// Check for expired token to trigger auto-login
-			// Replace "AUTH_ERROR" with whatever code USGS actually returns for expiry
-			if base.ErrorCode != nil && *base.ErrorCode == "AUTH_ERROR" && endpoint != "login-token" {
-				c.logger.Warn("USGS Token expired, attempting auto-refresh")
-
-				// attempt to re-login using the context
-				if err := c.Login(ctx); err == nil {
-					// recursive call with the NEW apiKey
-					return c.doRequest(ctx, endpoint, payload, result)
-				}
-			}
-			return apiErr
-		}
 	}
 
 	return nil
@@ -246,43 +229,4 @@ func (c *Client) Cleanup(ctx context.Context, sceneListName string) {
 	} else {
 		c.logger.Info("USGS session closed")
 	}
-}
-
-// FetchDatasetMetadata uses the "dataset-metadata" endpoint to retrieve all metadata fields for a given dataset
-func (c *Client) FetchDatasetMetadata(ctx context.Context, datasetName string) (map[string][]M2MFieldID, error) {
-	req := DatasetMetadataRequest{
-		DatasetName: datasetName,
-	}
-
-	var resp DatasetMetadataResponse
-
-	err := c.doRequest(ctx, "dataset-metadata", req, &resp)
-	if err != nil {
-		return nil, err
-	}
-
-	return resp.Data, nil
-}
-
-// FetchDatasetFilters retrieves searchable parameters and valid option mappings for scene queries
-func (c *Client) FetchDatasetFilters(ctx context.Context, datasetName string) ([]DatasetFilterField, error) {
-	// payload for the endpoint
-	reqPayload := map[string]string{
-		"datasetName": datasetName,
-	}
-
-	var respEnvelope DatasetFiltersResponse
-
-	// fire the network call
-	err := c.doRequest(ctx, "dataset-filters", reqPayload, &respEnvelope)
-	if err != nil {
-		return nil, fmt.Errorf("network execution failed for dataset-filters: %w", err)
-	}
-
-	// handle explicit error responses sent down by the USGS API
-	if respEnvelope.ErrorMessage != "" || respEnvelope.ErrorCode != "" {
-		return nil, fmt.Errorf("USGS API error (%s): %s", respEnvelope.ErrorCode, respEnvelope.ErrorMessage)
-	}
-
-	return respEnvelope.Data, nil
 }

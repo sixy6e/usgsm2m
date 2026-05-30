@@ -101,7 +101,7 @@ var downloadCmd = &cobra.Command{
 
 		// filter and resolve direct download URLs
 		// items := client.Request.FilterForZip(options)
-		items := client.Request.FilterBySystem(options, downloadSysFlag)
+		items := usgsm2m.FilterBySystem(options, downloadSysFlag)
 		links, err := client.Request.GetDownloadURLs(ctx, items)
 		if err != nil {
 			return fmt.Errorf("failed to retrieve download links: %w", err)
