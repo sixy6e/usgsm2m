@@ -9,7 +9,6 @@ import (
 
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/geojson"
-	"github.com/samber/lo"
 )
 
 // SceneSearchRequest represents the payload for the 'scene-search' endpoint
@@ -51,31 +50,6 @@ type SceneSearchData struct {
 	StartingNumber  int64   `json:"startingNumber"`
 	RecordsReturned int64   `json:"recordsReturned"`
 	NumExcluded     int64   `json:"numExcluded"`
-}
-
-type DatasetSearchRequest struct {
-	// Used to identify datasets that are associated with a given application
-	Catalog string `json:"catalog,omitempty"`
-	// Used to restrict results to a specific category (does not search sub-sategories)
-	CategoryId string `json:"categoryId,omitempty"`
-	// Used as a filter with wildcards inserted at the beginning and the end of the supplied value
-	DatasetName string `json:"datasetName,omitempty"`
-	// Optional parameter to include messages regarding specific dataset components
-	IncludeMessages bool `json:"includeMessages,omitempty"`
-	// Used as a filter out datasets that are not accessible to unauthenticated general public users
-	PublicOnly bool `json:"publicOnly,omitempty"`
-	// Optional parameter to include datasets that do not support geographic searching
-	IncludeUnknownSpatial bool `json:"includeUnknownSpatial,omitempty"`
-	// Used to filter data based on data acquisition
-	TemporalFilter *TemporalFilter `json:"temporalFilter,omitempty"`
-	// Used to filter data based on data location
-	SpatialFilter *SpatialFilter `json:"spatialFilter,omitempty"`
-	// Defined the sorting as Ascending (ASC) or Descending (DESC) - default is ASC
-	SortDirection string `json:"sortDirection,omitempty"`
-	// Identifies which field should be used to sort datasets (shortName - default, longName, dastasetName, GloVis)
-	SortField string `json:"sortField,omitempty"`
-	// Optional parameter to indicate whether to use customization
-	UseCustomization bool `json:"useCustomization,omitempty"`
 }
 
 // AcquisitionFilter handles date ranges
@@ -147,15 +121,6 @@ type SceneFilter struct {
 	Spatial *SpatialFilter `json:"spatialFilter,omitempty"`
 	// Used to apply month numbers from 1 to 12 on the data
 	SeasonalFilter []int64 `json:"seasonalFilter,omitempty"`
-}
-
-type TemporalFilter struct {
-	// ISO 8601 Formatted Date
-	// Start time.Time `json:"start"`
-	Start string `json:"start"`
-	// ISO 8601 Formatted Date
-	// End time.Time `json:"end"`
-	End string `json:"end"`
 }
 
 type Coordinate struct {
@@ -268,31 +233,6 @@ type Scene struct {
 
 type Browse struct {
 	Url string `json:"url"`
-}
-
-type Dataset struct {
-	// Pointers are being used to prevent unmarshal panics when USGS returns null
-	AbstractText          *string        `json:"abstractText"`
-	AcquisitionEnd        *string        `json:"acquisitionEnd"`
-	AcquisitionStart      string         `json:"acquisitionStart"`
-	AllowInKmz            bool           `json:"allowInKmz"`
-	Catalogs              []string       `json:"catalogs"`
-	CollectionLongName    string         `json:"collectionLongName"`
-	CollectionName        string         `json:"collectionName"`
-	DataOwner             string         `json:"dataOwner"`
-	DatasetAlias          *string        `json:"datasetAlias"`
-	DatasetCategoryName   string         `json:"datasetCategoryName"`
-	DatasetId             string         `json:"datasetId"`
-	DateUpdated           string         `json:"dateUpdated"`
-	DoiNumber             *string        `json:"doiNumber"`
-	IngestFrequency       string         `json:"ingestFrequency"`
-	Keywords              string         `json:"keywords"`
-	LegacyId              *int64         `json:"legacyId"`
-	SceneCount            int64          `json:"sceneCount"`
-	SpatialBounds         *SpatialBounds `json:"spatialBounds"`
-	SupportCloudCover     bool           `json:"supportCloudCover"`
-	SupportDeletionSearch bool           `json:"supportDeletionSearch"`
-	TemporalCoverage      *string        `json:"temporalCoverage"`
 }
 
 // DuplicateProducts on the M2M side is polymorphic. When nothing M2M returns an
@@ -422,13 +362,6 @@ func WithGeoJSONGeometry(geom *geojson.Geometry) SpatialOption {
 	}
 }
 
-// Names returns a flat slice of dataset display names/aliases
-func (d DatasetSearchData) Names() []string {
-	return lo.Map(d.Data, func(ds Dataset, _ int) string {
-		return *ds.DatasetAlias // or ds.DatasetName depending on USGS field
-	})
-}
-
 // SceneSearch executes a query to the M2M scene-search endpoint.
 // If maxResults is > 0, it limits the total results. If maxResults <= 0, it drains the entire search result.
 func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter *SceneFilter, maxResults int64) ([]Scene, error) {
@@ -496,26 +429,6 @@ func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter
 	}
 
 	return allScenes, nil
-}
-
-func (s *RequestService) DatasetSearch(ctx context.Context, req DatasetSearchRequest) (dss []Dataset, err error) {
-	var datasetData DatasetSearchData
-	err = doRequest(ctx, s, "dataset-search", req, &datasetData)
-	if err != nil {
-		return dss, err
-	}
-	dss = datasetData.Data
-	return dss, nil
-}
-
-// ValidateDataset checks if the provided string is a real dataset
-func (s *RequestService) ValidateDataset(ctx context.Context, name string) (bool, error) {
-	req := DatasetSearchRequest{}
-	dss, err := s.DatasetSearch(ctx, req)
-	if err != nil {
-		return false, fmt.Errorf("failed to fetch dataset list: %w", err)
-	}
-	return lo.Contains(DatasetNames(dss), name), nil
 }
 
 // We need a specific UnmarshalJSON as the M2M side is polymorphic.
