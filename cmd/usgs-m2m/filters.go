@@ -57,6 +57,12 @@ var filtersCmd = &cobra.Command{
 			return fmt.Errorf("authentication failed: %w", err)
 		}
 
+		defer func() {
+			if err := client.Logout(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "Error cleaning up session: %v\n", err)
+			}
+		}()
+
 		filterFields, err := client.Request.FetchDatasetFilters(ctx, datasetName)
 		if err != nil {
 			return err

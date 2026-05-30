@@ -64,6 +64,12 @@ func runSearchScene(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
+	defer func() {
+		if err := client.Logout(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "Error cleaning up session: %v\n", err)
+		}
+	}()
+
 	// process and parse raw terminal flag strings
 	var parsedInputs []MetadataInput
 	for _, rawFlag := range metaFlags {

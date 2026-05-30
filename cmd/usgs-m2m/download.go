@@ -82,6 +82,12 @@ var downloadCmd = &cobra.Command{
 		}
 		logger.Info("Login successful.")
 
+		defer func() {
+			if err := client.Logout(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "Error cleaning up session: %v\n", err)
+			}
+		}()
+
 		// validate and stage the scene list
 		// generate a unique batch label for this run
 		// (avoid collisions with previous requests)

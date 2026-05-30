@@ -64,6 +64,12 @@ func runDatasetSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
+	defer func() {
+		if err := client.Logout(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "Error cleaning up session: %v\n", err)
+		}
+	}()
+
 	// assemble structural request body cleanly utilizing pointers or strings
 	req := usgsm2m.DatasetSearchRequest{
 		DatasetName: datasetQuery,

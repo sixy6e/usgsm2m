@@ -50,6 +50,12 @@ var fieldsCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialise client: %w", err)
 		}
 
+		defer func() {
+			if err := client.Logout(ctx); err != nil {
+				fmt.Fprintf(os.Stderr, "Error cleaning up session: %v\n", err)
+			}
+		}()
+
 		// authenticate to obtain the active API key
 		if !asJSON {
 			logger.Info("Logging into USGS M2M service...")
