@@ -48,18 +48,18 @@ func init() {
 }
 
 func initConfig() error {
-	viper.SetConfigName(".usgs-m2m")
-	viper.SetConfigType("toml")
-	viper.AddConfigPath("$HOME")
-	viper.AddConfigPath(".")
-	viper.AutomaticEnv()
-	viper.SetEnvPrefix("USGS_M2M")
+	v.SetConfigName(".usgs-m2m")
+	v.SetConfigType("toml")
+	v.AddConfigPath("$HOME")
+	v.AddConfigPath(".")
+	v.AutomaticEnv()
+	v.SetEnvPrefix("USGS_M2M")
 
-	viper.SetDefault("defaults.concurrency", 4)
-	viper.SetDefault("defaults.dataset", "landsat_ot_c2_l1")
-	viper.SetDefault("defaults.output_dir", "./downloads")
+	v.SetDefault("defaults.concurrency", 4)
+	v.SetDefault("defaults.dataset", "landsat_ot_c2_l1")
+	v.SetDefault("defaults.output_dir", "./downloads")
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err := v.ReadInConfig(); err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if errors.As(err, &configFileNotFoundError) {
 			// missing config is an acceptable path
