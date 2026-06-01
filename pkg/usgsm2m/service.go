@@ -58,7 +58,6 @@ func (s *RequestService) Cleanup(ctx context.Context, listId string) {
 
 // doRequest wraps the client transport logic, intercepts USGS-specific errors,
 // unmarshals into our generic response envelope, and manages backoffs.
-//
 // T represents the inner "data" struct type expected from the USGS endpoint.
 func doRequest[T any](ctx context.Context, s *RequestService, method string, payload interface{}, result *T) error {
 	const maxRetries = 3
@@ -113,16 +112,33 @@ func doRequest[T any](ctx context.Context, s *RequestService, method string, pay
 			lastErr = apiErr
 			s.client.logger.Info("USGS API returned business error", "method", method, "attempt", i+1, "error", apiErr)
 
-			// if it's a RATE_LIMIT, continue the loop so it hits our penalty backoff rule above
-			if envelope.ErrorCode != nil && *envelope.ErrorCode == "RATE_LIMIT" {
-				continue
+			// handle specialized business error codes natively
+			if envelope.ErrorCode != nil {
+				switch *envelope.ErrorCode {
+				case "RATE_LIMIT":
+					// continue the loop so it hits our penalty backoff rule above
+					continue
+
+				case "AUTH_FAILURE":
+					// intercept session expiration and attempt transparent recovery
+					s.client.logger.Warn("Session token expired or invalid; triggering re-authentication", "method", method, "attempt", i+1)
+
+					// re-execute Login to update client state with a fresh token.
+					// if the login itself fails, fail-fast completely.
+					if loginErr := s.client.Login(ctx); loginErr != nil {
+						return fmt.Errorf("transparent re-authentication failed: %w", loginErr)
+					}
+
+					// successfully refreshed credentials! Continue the loop to retry the original request immediately.
+					continue
+				}
 			}
 
-			// for any other structural/fatal USGS error (like AUTH_FAILURE), fail-fast instantly
+			// for any other structural/fatal USGS error (like AUTH_FAILURE removed from here), fail-fast instantly
 			break
 		}
 
-		// Success! Extract the unwrapped, strongly-typed data and assign it to the caller's target pointer
+		// success; extract the unwrapped, strongly-typed data and assign it to the caller's target pointer
 		*result = envelope.Data
 		return nil
 	}
@@ -133,7 +149,7 @@ func doRequest[T any](ctx context.Context, s *RequestService, method string, pay
 
 func (s *RequestService) RemoveSceneList(ctx context.Context, listId string) error {
 	req := map[string]string{"listId": listId}
-	// We don't need the result, just a check for API errors
+	// we don't need the result, just a check for API errors
 	var data struct{}
 	return doRequest(ctx, s, "scene-list-remove", req, &data)
 }
