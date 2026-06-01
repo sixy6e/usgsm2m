@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -279,4 +280,197 @@ func TestGetDownloadURLs_ContextTimeout(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "context deadline exceeded") {
 		t.Errorf("Expected context deadline error, got: %v", err)
 	}
+}
+
+func TestNewDownloadManager_Validation(t *testing.T) {
+	tmpDir := t.TempDir()
+	client, _ := NewClient("test", "token", 1, tmpDir)
+
+	t.Run("Creates output directory if missing", func(t *testing.T) {
+		targetPath := filepath.Join(tmpDir, "nested_output_dir")
+		dm, err := NewDownloadManager(client, 2, targetPath)
+		if err != nil {
+			t.Fatalf("Expected successful DownloadManager initialization, got: %v", err)
+		}
+		if !FileExists(targetPath) {
+			t.Errorf("DownloadManager failed to create target output directory path")
+		}
+		dm.Wait()
+	})
+
+	t.Run("Fails cleanly if directory permissions are completely unwritable", func(t *testing.T) {
+		// attempting to target a protected system root path should trigger a write error
+		_, err := NewDownloadManager(client, 2, "/sys/kernel/security/illegal_non_existent_path")
+		if err == nil {
+			t.Fatal("Expected error setup validation failure on unwritable path, got nil")
+		}
+	})
+}
+
+func TestDownloadManager_SuccessfulStreamAndRetryLogic(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// spin up a mock download data stream server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-gzip")
+		w.Header().Set("Content-Disposition", `attachment; filename="landsat_scene_mock.tar.gz"`)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("mock-compressed-binary-payload-data-stream"))
+	}))
+	defer server.Close()
+
+	client, _ := NewClient("test", "token", 1, tmpDir)
+	dm, err := NewDownloadManager(client, 2, tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to create DownloadManager: %v", err)
+	}
+
+	ctx := context.Background()
+
+	t.Run("Streams file completely and performs safe atomic rename", func(t *testing.T) {
+		job := DownloadJob{
+			EntityId:    "LC08_L1TP_030032_20260601",
+			ProductName: "Bundle",
+			URL:         server.URL + "/stream-target",
+		}
+
+		err := dm.DownloadWithRetry(ctx, job)
+		if err != nil {
+			t.Fatalf("Expected clean successful download execution, got: %v", err)
+		}
+
+		// verify the folder structure matches: outputDir/ProductName/realFilename
+		expectedFile := filepath.Join(tmpDir, "Bundle", "landsat_scene_mock.tar.gz")
+		if !FileExists(expectedFile) {
+			t.Errorf("Expected downloaded file to exist at: %s", expectedFile)
+		}
+
+		// verify that temp trailing file fragments are cleanly removed out
+		if FileExists(expectedFile + ".tmp") {
+			t.Errorf("Stale dangling .tmp download fragment was not cleared up")
+		}
+	})
+
+	t.Run("Short-circuits instantly if target file already sits on disk", func(t *testing.T) {
+		job := DownloadJob{
+			EntityId:    "LC08_L1TP_030032_20260601",
+			ProductName: "Bundle",
+			URL:         server.URL + "/stream-target",
+		}
+
+		// call it again. this should hit the logic: d.client.logger.Info("File already exists, skipping")
+		err := dm.DownloadWithRetry(ctx, job)
+		if err != nil {
+			t.Errorf("Expected nil error bypass return when file exists on local storage, got: %v", err)
+		}
+	})
+
+	t.Run("Breaks out instantly without wasting retries on 404 permanent failure gates", func(t *testing.T) {
+		deadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound) // 404
+		}))
+		defer deadServer.Close()
+
+		job := DownloadJob{
+			EntityId:    "LC08_Missing_Scene",
+			ProductName: "Bundle",
+			URL:         deadServer.URL,
+		}
+
+		startTime := time.Now()
+		err := dm.DownloadWithRetry(ctx, job)
+		duration := time.Since(startTime)
+
+		if err == nil {
+			t.Fatal("Expected download loop framework failure mapping, got nil")
+		}
+
+		// if it tried to back off and retry 3 times, the duration would exceed 2-4 seconds.
+		// a non-retryable 404 should drop out of the loop under 500ms
+		if duration > 1*time.Second {
+			t.Errorf("Download engine wasted time retrying a permanent 404 error code gate: took %v", duration)
+		}
+	})
+
+	dm.Wait()
+}
+
+func TestDownloadManager_ContextCancellationMitigation(t *testing.T) {
+	tmpDir := t.TempDir()
+	client, _ := NewClient("test", "token", 1, tmpDir)
+	dm, _ := NewDownloadManager(client, 1, tmpDir)
+
+	// create a long-standing mock stream that hangs to test mid-stream cancellation
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		time.Sleep(2 * time.Second) // force a delay block
+	}))
+	defer server.Close()
+
+	// spin up a cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	job := DownloadJob{
+		EntityId:    "LC08_Cancel_Me_Mid_Flight",
+		ProductName: "Bundle",
+		URL:         server.URL,
+	}
+
+	// trigger cancellation immediately after queueing up our worker payload
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err := dm.DownloadWithRetry(ctx, job)
+	if err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Errorf("Expected error to explicitly trap context cancellation, got: %v", err)
+	}
+
+	// double check filesystem hygiene: verify the partial .tmp file was stripped from disk
+	expectedTmpFile := filepath.Join(tmpDir, "Bundle", "LC08_Cancel_Me_Mid_Flight.tar.gz.tmp")
+	if FileExists(expectedTmpFile) {
+		t.Errorf("Filesystem failure: partial download scratch file %s was left behind after context cancellation", expectedTmpFile)
+	}
+
+	dm.Wait()
+}
+
+func TestDownloadOptionFlattenerAndFilters(t *testing.T) {
+	mockOptions := []DownloadOption{
+		{
+			Id:             "prod_1",
+			EntityId:       "scene_A",
+			ProductName:    "Landsat Level-1 Product Bundle",
+			DownloadSystem: "dds",
+			Available:      true,
+			ProductCode:    "L1B",
+		},
+		{
+			Id:             "recursive_parent",
+			EntityId:       "scene_B",
+			ProductName:    "Parent Structure",
+			DownloadSystem: "dds",
+			Available:      true,
+			ProductCode:    "",
+			SecondaryDownloads: []DownloadOption{
+				{
+					Id:             "leaf_child",
+					EntityId:       "scene_B",
+					ProductName:    "Metadata XML Component File",
+					DownloadSystem: "ls_zip",
+					Available:      true,
+					ProductCode:    "XML",
+				},
+			},
+		},
+	}
+
+	t.Run("flattenOptions properly extracts nested leaf components", func(t *testing.T) {
+		flat := flattenOptions(mockOptions[1]) // target the recursive parent element
+		if len(flat) != 1 || flat[0].Id != "leaf_child" {
+			t.Errorf("Expected 1 flattened leaf child node, got: %d", len(flat))
+		}
+	})
 }
