@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -17,6 +17,9 @@ var (
 	cfg    usgsm2m.Config
 	logger *slog.Logger
 	asJSON bool
+
+	// allows tests to use different viper configurations from env vars
+	v *viper.Viper = viper.New()
 )
 
 var rootCmd = &cobra.Command{
@@ -27,18 +30,24 @@ var rootCmd = &cobra.Command{
 func init() {
 	// initialize a text logger that outputs to standard error
 	logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	cobra.OnInitialize(initConfig)
+
+	cobra.OnInitialize(func() {
+		if err := initConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Config Error: %v\n", err)
+			os.Exit(1)
+		}
+	})
 
 	rootCmd.PersistentFlags().String("username", "", "USGS M2M Username")
 	rootCmd.PersistentFlags().String("token", "", "USGS M2M API Token")
 
 	rootCmd.PersistentFlags().BoolVarP(&asJSON, "json", "j", false, "Output command results in JSON format")
 
-	viper.BindPFlag("auth.username", rootCmd.PersistentFlags().Lookup("username"))
-	viper.BindPFlag("auth.token", rootCmd.PersistentFlags().Lookup("token"))
+	v.BindPFlag("auth.username", rootCmd.PersistentFlags().Lookup("username"))
+	v.BindPFlag("auth.token", rootCmd.PersistentFlags().Lookup("token"))
 }
 
-func initConfig() {
+func initConfig() error {
 	viper.SetConfigName(".usgs-m2m")
 	viper.SetConfigType("toml")
 	viper.AddConfigPath("$HOME")
@@ -56,12 +65,17 @@ func initConfig() {
 			// missing config is an acceptable path
 			logger.Debug("No configuration file found (.usgs-m2m.toml); relying on defaults and environment variables")
 		} else {
-			// crash if the file is there but unreadable or corrupted
-			log.Fatalf("Critical error reading configuration file: %v", err)
+			// return a fatal error rather than crashing as previously done
+			// log.Fatalf("Critical error reading configuration file: %v", err)
+			return fmt.Errorf("critical error reading configuration file: %w", err)
 		}
 	}
 
-	if err := viper.Unmarshal(&cfg); err != nil {
-		log.Fatalf("Unable to decode config into struct: %v", err)
+	// if err := viper.Unmarshal(&cfg); err != nil {
+	// 	log.Fatalf("Unable to decode config into struct: %v", err)
+	// }
+	if err := v.Unmarshal(&cfg); err != nil {
+		return fmt.Errorf("unable to decode config into struct: %w", err)
 	}
+	return nil
 }
