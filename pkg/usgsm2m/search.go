@@ -281,7 +281,7 @@ type SceneListAddRequest struct {
 
 type SceneListAddData struct {
 	// The USGS returns the number of scenes successfully added in the "data" field
-	Count int `json:"data"`
+	Count int
 }
 
 // NewMetadataFilter is the single entry point using functional options
@@ -367,7 +367,6 @@ func WithGeoJSONGeometry(geom *geojson.Geometry) SpatialOption {
 func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter *SceneFilter, maxResults int64) ([]Scene, error) {
 	var allScenes []Scene
 	var startingNumber int64 = 1
-	var searchData SceneSearchData
 
 	// determine if the user set an explicit ceiling or wants an unlimited fetch
 	hasCeiling := maxResults > 0
@@ -395,10 +394,23 @@ func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter
 			StartingNumber: startingNumber,
 		}
 
+		// fresh instance per loop to prevent state pollution
+		var searchData SceneSearchData
+
 		err := doRequest(ctx, s, "scene-search", reqBody, &searchData)
 		if err != nil {
 			return nil, err
 		}
+
+		// debug log to inspect raw pagination signals sent by USGS
+		s.client.logger.Debug("Raw M2M scene-search response metadata",
+			"req_starting_number", startingNumber,
+			"req_page_size", pageSize,
+			"resp_records_returned", searchData.RecordsReturned,
+			"resp_total_hits", searchData.TotalHits,
+			"resp_next_record", searchData.NextRecord,
+			"results_len", len(searchData.Results),
+		)
 
 		// collate results
 		allScenes = append(allScenes, searchData.Results...)
@@ -408,6 +420,11 @@ func (s *RequestService) SceneSearch(ctx context.Context, dataset string, filter
 			"collected", len(allScenes),
 			"total_hits", searchData.TotalHits,
 		)
+
+		// stop as soon as collected reaches total hits
+		if searchData.TotalHits > 0 && int64(len(allScenes)) >= searchData.TotalHits {
+			break
+		}
 
 		// evaluation and termination checks
 		if hasCeiling && int64(len(allScenes)) >= maxResults {
