@@ -171,7 +171,7 @@ func (s *RequestService) AddToSceneListSafely(ctx context.Context, dataset, list
 
 		// doRequest will automatically handle retries if the USGS
 		// server has a 500-series "hiccup"
-		err := doRequest(ctx, s, "scene-list-add", req, &data)
+		err := doRequest(ctx, s, "scene-list-add", req, &data.Count)
 		s.client.logger.Info("scene-list-add", "error", err)
 		if err != nil {
 			// if it's a 400 (Invalid ID), doRequest returns it,
