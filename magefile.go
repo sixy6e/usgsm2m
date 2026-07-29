@@ -36,6 +36,34 @@ func Build() error {
 	return nil
 }
 
+func BuildWindows() error {
+	fmt.Println("Cross-compiling for Windows...")
+	commit := getGitCommit()
+	version := getGitVersion()
+	buildTime := time.Now().UTC().Format(time.RFC3339)
+
+	ldFlags := fmt.Sprintf("-s -w -X github.com/sixy6e/usgsm2m/pkg/usgsm2m.Version=%s -X github.com/sixy6e/usgsm2m/pkg/usgsm2m.Commit=%s -X github.com/sixy6e/usgsm2m/pkg/usgsm2m.BuildTime=%s", version, commit, buildTime)
+
+	// compiles directly into your local repo workspace at ./bin/usgs-m2m
+	cmd := exec.Command("go", "build", "-ldflags", ldFlags, "-o", "bin/usgs-m2m.exe", "./cmd/usgs-m2m")
+
+	// Inject cross-compilation environment variables
+	cmd.Env = append(os.Environ(),
+		"GOOS=windows",
+		"GOARCH=amd64",
+		"CGO_ENABLED=0",
+	)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to build binary: %w", err)
+	}
+
+	fmt.Println("✅ Compiled: ./bin/usgs-m2m.exe")
+	return nil
+}
+
 // Install compiles and installs the binary globally into your $GOPATH/bin.
 func Install() error {
 	fmt.Println("🚀 Installing usgs-m2m globally...")
