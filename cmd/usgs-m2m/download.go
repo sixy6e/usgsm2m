@@ -9,6 +9,9 @@ import (
 	"strings"
 	"syscall"
 
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
+
 	"github.com/sixy6e/usgsm2m/pkg/usgsm2m"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -32,7 +35,11 @@ var downloadCmd = &cobra.Command{
 			}
 			defer file.Close()
 
-			scanner := bufio.NewScanner(file)
+			// handler for Windows [:(] generated UTF-16 text files
+			decoder := unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder()
+			utf8Reader := transform.NewReader(file, decoder)
+
+			scanner := bufio.NewScanner(utf8Reader)
 			for scanner.Scan() {
 				line := strings.TrimSpace(scanner.Text())
 				// skip empty lines or commented out lines (using #)
@@ -61,14 +68,18 @@ var downloadCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop() // clean up the signal listener registration on exit
 
+		dataset := viper.GetString("defaults.dataset")
+		concurrency := viper.GetInt("defaults.concurrency")
+		outdir := viper.GetString("defaults.output_dir")
+
 		logger.Info("Initializing USGS M2M Client Pool", "user", cfg.Auth.Username)
 
 		// instantiate the Client using user's signature
 		client, err := usgsm2m.NewClient(
 			cfg.Auth.Username,
 			cfg.Auth.Token,
-			cfg.Defaults.Concurrency,
-			cfg.Defaults.OutputDir,
+			concurrency,
+			outdir,
 			usgsm2m.WithLogger(logger),
 		)
 		if err != nil {
@@ -93,14 +104,14 @@ var downloadCmd = &cobra.Command{
 		// (avoid collisions with previous requests)
 		batchLabel := usgsm2m.GenerateBatchId()
 
-		logger.Info("Validating scene list with USGS", "dataset", cfg.Defaults.Dataset, "count", len(args))
-		confirmed := client.Request.AddToSceneListSafely(ctx, cfg.Defaults.Dataset, batchLabel, args)
+		logger.Info("Validating scene list with USGS", "dataset", dataset, "count", len(args))
+		confirmed := client.Request.AddToSceneListSafely(ctx, dataset, batchLabel, args)
 		if len(confirmed) == 0 {
 			return errors.New("no scene IDs were successfully validated by USGS")
 		}
 
 		// fetch product download options
-		options, err := client.Request.GetDownloadOptions(ctx, cfg.Defaults.Dataset, confirmed)
+		options, err := client.Request.GetDownloadOptions(ctx, dataset, confirmed)
 		if err != nil {
 			return fmt.Errorf("failed to fetch product options: %w", err)
 		}
@@ -153,7 +164,7 @@ func init() {
 	downloadCmd.Flags().StringP("output", "o", "./downloads", "Output directory for downloaded files")
 	downloadCmd.Flags().StringVar(&downloadSysFlag, "sys", "", "Target M2M download system code (e.g., 'ls_zip', 'dds')")
 
-	viper.BindPFlag("dataset", downloadCmd.Flags().Lookup("dataset"))
-	viper.BindPFlag("concurrency", downloadCmd.Flags().Lookup("concurrency"))
-	viper.BindPFlag("output_dir", downloadCmd.Flags().Lookup("output"))
+	viper.BindPFlag("defaults.dataset", downloadCmd.Flags().Lookup("dataset"))
+	viper.BindPFlag("defaults.concurrency", downloadCmd.Flags().Lookup("concurrency"))
+	viper.BindPFlag("defaults.output_dir", downloadCmd.Flags().Lookup("output"))
 }
