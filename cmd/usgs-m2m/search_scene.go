@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	datasetFlag     string
 	metaFlags       []string
 	limitFlag       int64
 	startFlag       string
@@ -80,9 +81,14 @@ func runSearchScene(cmd *cobra.Command, args []string) error {
 		parsedInputs = append(parsedInputs, input)
 	}
 
+	dataset := datasetFlag
+	if dataset == "" {
+		dataset = cfg.Defaults.Dataset
+	}
+
 	// create the single resolver instance to benefit from the internal cache
 	resolver := NewFieldResolver(client)
-	apiFilter, err := BuildMetadataFilter(ctx, resolver, cfg.Defaults.Dataset, parsedInputs)
+	apiFilter, err := BuildMetadataFilter(ctx, resolver, dataset, parsedInputs)
 	if err != nil {
 		return fmt.Errorf("failed to construct metadata filter: %w", err)
 	}
@@ -173,9 +179,9 @@ func runSearchScene(cmd *cobra.Command, args []string) error {
 		sceneFilter.Spatial = spatialFilter
 	}
 
-	logger.Info("Executing scene search with metadata constraints...", "dataset", cfg.Defaults.Dataset, "filters", len(parsedInputs))
+	logger.Info("Executing scene search with metadata constraints...", "dataset", dataset, "filters", len(parsedInputs))
 
-	results, err := client.Request.SceneSearch(ctx, cfg.Defaults.Dataset, sceneFilter, limitFlag)
+	results, err := client.Request.SceneSearch(ctx, dataset, sceneFilter, limitFlag)
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
 	}
@@ -269,7 +275,7 @@ func BuildMetadataFilter(ctx context.Context, resolver *FieldResolver, dataset s
 func init() {
 	// StringSliceVarP lets a user use -m multiple times in one execution
 	searchSceneCmd.Flags().StringSliceVarP(&metaFlags, "meta", "m", []string{}, "Metadata filters to apply (e.g. -m 'WRS Path=90' -m 'WRS Row=32')")
-	searchSceneCmd.Flags().StringP("dataset", "d", "landsat_ot_c2_l1", "The USGS dataset name")
+	searchSceneCmd.Flags().StringVar(&datasetFlag, "d", "landsat_ot_c2_l1", "The USGS dataset name")
 	searchSceneCmd.Flags().Int64VarP(&limitFlag, "limit", "l", 0, "Maximum number of scenes to return (default 0 returns all scenes")
 
 	// acquisition date window flags
